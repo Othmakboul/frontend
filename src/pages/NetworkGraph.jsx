@@ -1,62 +1,137 @@
-import { useRef, useState, useEffect, useCallback } from 'react';
-import ForceGraph2D from 'react-force-graph-2d';
-import api from '../lib/api';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import {
+    ReactFlow,
+    Controls,
+    Background,
+    MiniMap,
+    useNodesState,
+    useEdgesState,
+    useReactFlow,
+    ReactFlowProvider
+} from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
+import dagre from 'dagre';
 import { Search, Download } from 'lucide-react';
 
-export default function NetworkGraph() {
-    const fgRef = useRef();
-    const [graphData, setGraphData] = useState({
-        nodes: [
-            { id: 'root', name: 'LISTIC', val: 20, color: '#ef4444', type: 'root' } // Red for global root
-        ],
-        links: []
+import api from '../lib/api';
+import GraphCustomNode from '../components/GraphCustomNode';
+
+const nodeTypes = {
+    custom: GraphCustomNode,
+};
+
+// Dagre layout helper
+const dagreGraph = new dagre.graphlib.Graph();
+dagreGraph.setDefaultEdgeLabel(() => ({}));
+
+const nodeWidth = 200;
+const nodeHeight = 80;
+
+const getLayoutedElements = (nodes, edges, direction = 'LR') => {
+    dagreGraph.setGraph({ rankdir: direction, ranksep: 100, nodesep: 50 });
+
+    nodes.forEach((node) => {
+        dagreGraph.setNode(node.id, { width: nodeWidth, height: nodeHeight });
     });
+
+    edges.forEach((edge) => {
+        dagreGraph.setEdge(edge.source, edge.target);
+    });
+
+    dagre.layout(dagreGraph);
+
+    const layoutedNodes = nodes.map((node) => {
+        const nodeWithPosition = dagreGraph.node(node.id);
+        return {
+            ...node,
+            position: {
+                x: nodeWithPosition.x - nodeWidth / 2,
+                y: nodeWithPosition.y - nodeHeight / 2,
+            },
+        };
+    });
+
+    return { nodes: layoutedNodes, edges };
+};
+
+const initialNodes = [
+    {
+        id: 'root',
+        type: 'custom',
+        data: { label: 'LISTIC', type: 'root', color: '#ef4444' },
+        position: { x: 0, y: 0 },
+    },
+];
+
+const initialEdges = [];
+
+function NetworkGraphInner() {
+    const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+    const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+    
     const [loading, setLoading] = useState(false);
     const [expandedNodes, setExpandedNodes] = useState(new Set());
     const [info, setInfo] = useState("Click on the LISTIC node to start.");
-    const [researcherCache, setResearcherCache] = useState({}); // Cache for researcher details
+    const [researcherCache, setResearcherCache] = useState({});
+    
     const [searchQuery, setSearchQuery] = useState('');
-    const [highlightedNodeId, setHighlightedNodeId] = useState(null);
     const [showSearchResults, setShowSearchResults] = useState(false);
 
-    // Filter nodes based on search query
-    const searchResults = searchQuery.trim()
-        ? graphData.nodes.filter(n =>
-            n.name.toLowerCase().includes(searchQuery.toLowerCase())
-        ).slice(0, 10)
-        : [];
+    const { setCenter, fitView } = useReactFlow();
 
-    // Function to zoom to a specific node
-    const zoomToNode = (node) => {
-        if (fgRef.current && node.x !== undefined && node.y !== undefined) {
-            fgRef.current.centerAt(node.x, node.y, 500);
-            fgRef.current.zoom(2, 500);
-            setHighlightedNodeId(node.id);
-            setShowSearchResults(false);
-            setInfo(`Navigué vers: ${node.name}`);
-            // Clear highlight after 3 seconds
-            setTimeout(() => setHighlightedNodeId(null), 3000);
-        }
-    };
+    // Center on initialization
+    useEffect(() => {
+        const { nodes: layoutedNodes } = getLayoutedElements(nodes, edges);
+        setNodes(layoutedNodes);
+        setTimeout(() => fitView({ padding: 0.2, duration: 800 }), 100);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
-    // Function to export graph data as JSON
-    const exportGraphData = () => {
-        // Create clean export data (remove internal properties like fx, fy)
+    // Filter nodes based on search
+    const searchResults = useMemo(() => {
+        if (!searchQuery.trim()) return [];
+        return nodes
+            .filter(n => n.data.label.toLowerCase().includes(searchQuery.toLowerCase()))
+            .slice(0, 10);
+    }, [searchQuery, nodes]);
+
+    const zoomToNode = useCallback((node) => {
+        setCenter(node.position.x + nodeWidth / 2, node.position.y + nodeHeight / 2, {
+            zoom: 1.5,
+            duration: 800,
+        });
+        
+        setShowSearchResults(false);
+        setInfo(`Navigué vers: ${node.data.label}`);
+        
+        // Temporarily highlight node
+        setNodes(nds => nds.map(n => ({
+            ...n,
+            selected: n.id === node.id
+        })));
+        
+        
+        setTimeout(() => {
+            setNodes(nds => nds.map(n => ({ ...n, selected: false })));
+        }, 3000);
+    }, [setCenter, setNodes]);
+
+    const exportGraphData = useCallback(() => {
         const exportData = {
-            nodes: graphData.nodes.map(n => ({
+            nodes: nodes.map(n => ({
                 id: n.id,
-                name: n.name,
-                type: n.type,
-                color: n.color,
-                ...(n.data ? { data: n.data } : {})
+                name: n.data.label,
+                type: n.data.type,
+                color: n.data.color,
+                ...(n.data.raw ? { data: n.data.raw } : {})
             })),
-            links: graphData.links.map(l => ({
-                source: l.source.id || l.source,
-                target: l.target.id || l.target
+            links: edges.map(e => ({
+                source: e.source,
+                target: e.target
             })),
             exportDate: new Date().toISOString(),
-            totalNodes: graphData.nodes.length,
-            totalLinks: graphData.links.length
+            totalNodes: nodes.length,
+            totalEdges: edges.length
         };
 
         const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
@@ -68,798 +143,543 @@ export default function NetworkGraph() {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        setInfo(`Graphe exporté: ${graphData.nodes.length} nœuds, ${graphData.links.length} liens.`);
-    };
+        setInfo(`Graphe exporté: ${nodes.length} nœuds, ${edges.length} liens.`);
+    }, [nodes, edges]);
 
-    useEffect(() => {
-        if (fgRef.current) {
-            // Strong repulsion to prevent overlap
-            fgRef.current.d3Force('charge').strength(-4000).distanceMax(1500);
-            fgRef.current.d3Force('link').distance(150);
-        }
-    }, [graphData]);
+    const applyLayout = useCallback((newNodes, newEdges) => {
+        const layouted = getLayoutedElements(newNodes, newEdges);
+        setNodes(layouted.nodes);
+        setEdges(layouted.edges);
+        // Fit view nicely after layout changes
+        setTimeout(() => {
+             fitView({ padding: 0.2, duration: 800 });
+        }, 50);
+    }, [setNodes, setEdges, fitView]);
 
-    // Helper to add nodes safely
-    // ... (keeping existing code, but ensure we don't duplicate lines around) ...
+    const addNodesAndLinks = useCallback((sourceNodeId, customNodesList) => {
+        setNodes(prevNodes => {
+            setEdges(prevEdges => {
+                const existingNodeIds = new Set(prevNodes.map(n => n.id));
+                const filteredNewNodes = customNodesList
+                    .filter(n => !existingNodeIds.has(n.id))
+                    .map(n => ({
+                        id: n.id,
+                        type: 'custom',
+                        data: {
+                            label: n.name,
+                            subLabel: n.subLabel,
+                            type: n.type,
+                            color: n.color,
+                            raw: n.data || n, 
+                            ...n // store extra props
+                        },
+                        position: { x: 0, y: 0 }, // Dagre will position it
+                    }));
 
-    /* ... later in return statement ... */
+                const newEdgesArray = filteredNewNodes.map(n => ({
+                    id: `e-${sourceNodeId}-${n.id}`,
+                    source: sourceNodeId,
+                    target: n.id,
+                    animated: true,
+                    style: { stroke: n.data.color, strokeWidth: 2 }
+                }));
 
-    const addNodesAndLinks = (sourceNodeId, newNodes, newLinks) => {
-        setGraphData(prev => {
-            const existingNodeIds = new Set(prev.nodes.map(n => n.id));
-            const filteredNewNodes = newNodes.filter(n => !existingNodeIds.has(n.id));
-
-            // Avoid duplicate links
-            const existingLinkKeys = new Set(prev.links.map(l => `${l.source.id || l.source}-${l.target.id || l.target}`));
-            const filteredNewLinks = newLinks.filter(l => !existingLinkKeys.has(`${l.source}-${l.target}`));
-
-            return {
-                nodes: [...prev.nodes, ...filteredNewNodes],
-                links: [...prev.links, ...filteredNewLinks]
-            };
-        });
-    };
-
-    // Helper to remove a node and all its descendants
-    const removeNodeAndDescendants = useCallback((nodeId) => {
-        setGraphData(prev => {
-            // Find all descendants using BFS
-            const toRemove = new Set([nodeId]);
-            let changed = true;
-            while (changed) {
-                changed = false;
-                prev.links.forEach(link => {
-                    const sourceId = link.source.id || link.source;
-                    const targetId = link.target.id || link.target;
-                    if (toRemove.has(sourceId) && !toRemove.has(targetId)) {
-                        toRemove.add(targetId);
-                        changed = true;
-                    }
-                });
-            }
-            // Don't remove the clicked node itself, only its children
-            toRemove.delete(nodeId);
-
-            // Also remove these descendants from expandedNodes
-            setExpandedNodes(prevExpanded => {
-                const newSet = new Set(prevExpanded);
-                toRemove.forEach(id => newSet.delete(id));
-                newSet.delete(nodeId); // Also mark the clicked node as collapsed
-                return newSet;
+                const finalNodes = [...prevNodes, ...filteredNewNodes];
+                const finalEdges = [...prevEdges, ...newEdgesArray];
+                
+                applyLayout(finalNodes, finalEdges);
+                return prevNodes; // We handle update in applyLayout, so this dummy return avoids react flow conflicts.
             });
-
-            return {
-                nodes: prev.nodes.filter(n => !toRemove.has(n.id)),
-                links: prev.links.filter(l => {
-                    const sourceId = l.source.id || l.source;
-                    const targetId = l.target.id || l.target;
-                    return !toRemove.has(sourceId) && !toRemove.has(targetId);
-                })
-            };
+            return prevNodes;
         });
-    }, []);
+    }, [applyLayout, setNodes, setEdges]);
 
-    const handleNodeClick = useCallback(async (node) => {
-        // Toggle: If already expanded, collapse (remove children)
-        if (expandedNodes.has(node.id)) {
-            removeNodeAndDescendants(node.id);
-            setInfo(`Collapsed ${node.name}.`);
+
+    const removeNodeAndDescendants = useCallback((nodeId) => {
+        setEdges(prevEdges => {
+            setNodes(prevNodes => {
+                const toRemove = new Set([nodeId]);
+                let changed = true;
+                while (changed) {
+                    changed = false;
+                    prevEdges.forEach(edge => {
+                        if (toRemove.has(edge.source) && !toRemove.has(edge.target)) {
+                            toRemove.add(edge.target);
+                            changed = true;
+                        }
+                    });
+                }
+                toRemove.delete(nodeId); // Keep clicked node
+
+                setExpandedNodes(prev => {
+                    const next = new Set(prev);
+                    toRemove.forEach(id => next.delete(id));
+                    next.delete(nodeId);
+                    return next;
+                });
+
+                const remainingNodes = prevNodes.filter(n => !toRemove.has(n.id));
+                const remainingEdges = prevEdges.filter(e => !toRemove.has(e.source) && !toRemove.has(e.target));
+                
+                applyLayout(remainingNodes, remainingEdges);
+                return prevNodes;
+            });
+            return prevEdges;
+        });
+    }, [applyLayout, setNodes, setEdges]);
+
+
+    // Massive Node Click Handler ported from ForceGraph logic
+    const handleNodeClick = useCallback(async (event, node) => {
+        const id = node.id;
+        const type = node.data.type;
+        const name = node.data.label;
+
+        // Toggle Expand/Collapse
+        if (expandedNodes.has(id)) {
+            removeNodeAndDescendants(id);
+            setInfo(`Collapsed ${name}.`);
             return;
         }
 
-        const { id, type, name } = node;
         setExpandedNodes(prev => new Set(prev).add(id));
+        const customData = node.data;
 
-        // 1. Root Expansion: LISTIC -> Chercheurs & Projets
-        if (type === 'root') {
-            const newNodes = [
-                { id: 'group-researchers', name: 'Chercheurs', val: 15, color: '#3b82f6', type: 'group_researchers' },
-                { id: 'group-projects', name: 'Projets', val: 15, color: '#10b981', type: 'group_projects_global' }
-            ];
-            const newLinks = newNodes.map(n => ({ source: id, target: n.id }));
-            addNodesAndLinks(id, newNodes, newLinks);
-            setInfo("Expanded LISTIC. Choose Researchers or Projects.");
-            return;
-        }
+        try {
+            // 1. Root
+            if (type === 'root') {
+                const newNodes = [
+                    { id: 'group-researchers', name: 'Chercheurs', color: '#3b82f6', type: 'group_researchers' },
+                    { id: 'group-projects', name: 'Projets', color: '#10b981', type: 'group_projects_global' }
+                ];
+                addNodesAndLinks(id, newNodes);
+                setInfo("Expanded LISTIC. Choose Researchers or Projects.");
+                return;
+            }
 
-        // 2. Global Projects Expansion -> Show 3 sub-categories
-        if (type === 'group_projects_global') {
-            setLoading(true);
-            try {
+            // 2. Global Projects
+            if (type === 'group_projects_global') {
+                setLoading(true);
                 const res = await api.get('/projects');
                 const projects = res.data;
-
-                // Cache all projects for later use
                 setResearcherCache(prev => ({ ...prev, allProjects: projects }));
 
-                // Create 3 sub-nodes: Collaborateurs HAL, Partenaires, Financeurs
                 const newNodes = [
-                    { id: 'proj-collaborators-hal', name: 'Collaborateurs (HAL)', val: 12, color: '#ec4899', type: 'proj_collab_hal' },
-                    { id: 'proj-partners', name: 'Partenaires', val: 12, color: '#f59e0b', type: 'proj_partners_group' },
-                    { id: 'proj-funders', name: 'Financeurs', val: 12, color: '#8b5cf6', type: 'proj_funders_group' },
-                    { id: 'proj-by-category', name: 'Par Catégorie', val: 12, color: '#10b981', type: 'proj_by_category' }
+                    { id: 'proj-collaborators-hal', name: 'Collaborateurs (HAL)', color: '#ec4899', type: 'proj_collab_hal' },
+                    { id: 'proj-partners', name: 'Partenaires', color: '#f59e0b', type: 'proj_partners_group' },
+                    { id: 'proj-funders', name: 'Financeurs', color: '#8b5cf6', type: 'proj_funders_group' },
+                    { id: 'proj-by-category', name: 'Par Catégorie', color: '#10b981', type: 'proj_by_category' }
                 ];
-
-                const newLinks = newNodes.map(n => ({ source: id, target: n.id }));
-                addNodesAndLinks(id, newNodes, newLinks);
-
+                addNodesAndLinks(id, newNodes);
                 setInfo("Choisissez: Collaborateurs HAL, Partenaires, Financeurs ou Par Catégorie.");
-            } catch (e) {
-                console.error(e);
-                setInfo("Error loading projects.");
-            } finally {
                 setLoading(false);
-            }
-            return;
-        }
-
-        // 2.1 Projects by Category (original behavior)
-        if (type === 'proj_by_category') {
-            const projects = researcherCache.allProjects || [];
-            const types = [...new Set(projects.map(p => p.type || 'Autres'))];
-
-            const newNodes = types.map(t => ({
-                id: `proj-type-${t}`,
-                name: t,
-                val: 10,
-                color: '#10b981',
-                type: 'project_category',
-                raw_type: t
-            }));
-
-            // Cache projects by type
-            const cacheUpdate = {};
-            projects.forEach(p => {
-                const t = p.type || 'Autres';
-                if (!cacheUpdate[t]) cacheUpdate[t] = [];
-                cacheUpdate[t].push(p);
-            });
-            setResearcherCache(prev => ({ ...prev, ...cacheUpdate }));
-
-            const newLinks = newNodes.map(n => ({ source: id, target: n.id }));
-            addNodesAndLinks(id, newNodes, newLinks);
-            setInfo("Choisissez une catégorie de projet.");
-            return;
-        }
-
-        // 2.2 Partners Group -> List all unique partners
-        if (type === 'proj_partners_group') {
-            const projects = researcherCache.allProjects || [];
-            const partnerMap = {}; // partner name -> list of projects
-
-            projects.forEach(p => {
-                const partnersStr = p.PARTENAIRES || '';
-                if (!partnersStr.trim()) return;
-                const partners = partnersStr.split(',').map(s => s.trim()).filter(s => s);
-                partners.forEach(partner => {
-                    if (!partnerMap[partner]) partnerMap[partner] = [];
-                    partnerMap[partner].push(p);
-                });
-            });
-
-            // Cache partner -> projects
-            setResearcherCache(prev => ({ ...prev, partnerProjects: partnerMap }));
-
-            const newNodes = Object.keys(partnerMap).slice(0, 30).map(partner => ({
-                id: `partner-${partner.replace(/\s+/g, '_')}`,
-                name: partner,
-                val: 6,
-                color: '#fbbf24',
-                type: 'item_partner',
-                partnerName: partner
-            }));
-
-            const newLinks = newNodes.map(n => ({ source: id, target: n.id }));
-            addNodesAndLinks(id, newNodes, newLinks);
-            setInfo(`${Object.keys(partnerMap).length} partenaires trouvés.`);
-            return;
-        }
-
-        // 2.3 Partner item -> Show projects for this partner
-        if (type === 'item_partner') {
-            const partnerName = node.partnerName;
-            const projects = (researcherCache.partnerProjects || {})[partnerName] || [];
-
-            const newNodes = projects.map(p => ({
-                id: `partner-proj-${p._unique_id}`,
-                name: p.NOM,
-                val: 5,
-                color: '#fcd34d',
-                type: 'item_project_leaf',
-                data: p
-            }));
-
-            const newLinks = newNodes.map(n => ({ source: id, target: n.id }));
-            addNodesAndLinks(id, newNodes, newLinks);
-            setInfo(`${projects.length} projets avec ${partnerName}.`);
-            return;
-        }
-
-        // 2.4 Funders Group -> List all unique funders
-        if (type === 'proj_funders_group') {
-            const projects = researcherCache.allProjects || [];
-            const funderMap = {}; // funder name -> list of projects
-
-            projects.forEach(p => {
-                const fundersStr = p.FINANCEURS || '';
-                if (!fundersStr.trim()) return;
-                // Funders might have complex names with dashes, split carefully
-                const funders = fundersStr.split(',').map(s => s.trim()).filter(s => s);
-                funders.forEach(funder => {
-                    if (!funderMap[funder]) funderMap[funder] = [];
-                    funderMap[funder].push(p);
-                });
-            });
-
-            // Cache funder -> projects
-            setResearcherCache(prev => ({ ...prev, funderProjects: funderMap }));
-
-            const newNodes = Object.keys(funderMap).map(funder => ({
-                id: `funder-${funder.replace(/\s+/g, '_')}`,
-                name: funder,
-                val: 6,
-                color: '#a78bfa',
-                type: 'item_funder',
-                funderName: funder
-            }));
-
-            const newLinks = newNodes.map(n => ({ source: id, target: n.id }));
-            addNodesAndLinks(id, newNodes, newLinks);
-            setInfo(`${Object.keys(funderMap).length} financeurs trouvés.`);
-            return;
-        }
-
-        // 2.5 Funder item -> Show projects funded by this funder
-        if (type === 'item_funder') {
-            const funderName = node.funderName;
-            const projects = (researcherCache.funderProjects || {})[funderName] || [];
-
-            const newNodes = projects.map(p => ({
-                id: `funder-proj-${p._unique_id}`,
-                name: p.NOM,
-                val: 5,
-                color: '#c4b5fd',
-                type: 'item_project_leaf',
-                data: p
-            }));
-
-            const newLinks = newNodes.map(n => ({ source: id, target: n.id }));
-            addNodesAndLinks(id, newNodes, newLinks);
-            setInfo(`${projects.length} projets financés par ${funderName}.`);
-            return;
-        }
-
-        // 2.6 Collaborators from HAL (global for LISTIC)
-        if (type === 'proj_collab_hal') {
-            setLoading(true);
-            setInfo("Chargement des collaborateurs depuis HAL...");
-            try {
-                // Fetch global stats from HAL for LISTIC
-                const halUrl = `https://api.archives-ouvertes.fr/search/?q=structAcronym_s:"LISTIC"&wt=json&rows=0&facet=true&facet.field=authFullName_s&facet.limit=50&facet.mincount=5`;
-                const response = await fetch(halUrl);
-                const data = await response.json();
-
-                const authorFacet = data.facet_counts?.facet_fields?.authFullName_s || [];
-                const collaborators = [];
-                for (let i = 0; i < authorFacet.length; i += 2) {
-                    collaborators.push({ name: authorFacet[i], count: authorFacet[i + 1] });
-                }
-
-                const newNodes = collaborators.slice(0, 30).map(c => ({
-                    id: `hal-collab-${c.name.replace(/\s+/g, '_')}`,
-                    name: c.name,
-                    val: 5,
-                    color: '#f9a8d4',
-                    type: 'item_collab',
-                    collabName: c.name
-                }));
-
-                const newLinks = newNodes.map(n => ({ source: id, target: n.id }));
-                addNodesAndLinks(id, newNodes, newLinks);
-                setInfo(`${collaborators.length} collaborateurs HAL trouvés.`);
-            } catch (e) {
-                console.error(e);
-                setInfo("Erreur de chargement HAL.");
-            } finally {
-                setLoading(false);
-            }
-            return;
-        }
-
-        // 2.5 Project Category Expansion -> Show 4 sub-options for this category
-        if (type === 'project_category') {
-            const catProjects = researcherCache[node.raw_type] || [];
-            const categoryName = node.raw_type;
-
-            // Cache the projects for this specific category
-            setResearcherCache(prev => ({ ...prev, [`cat-projects-${categoryName}`]: catProjects }));
-
-            // Create 4 sub-nodes for this category
-            const newNodes = [
-                { id: `cat-${categoryName}-collab-hal`, name: 'Collaborateurs (HAL)', val: 8, color: '#ec4899', type: 'cat_collab_hal', categoryName },
-                { id: `cat-${categoryName}-partners`, name: 'Partenaires', val: 8, color: '#f59e0b', type: 'cat_partners', categoryName },
-                { id: `cat-${categoryName}-funders`, name: 'Financeurs', val: 8, color: '#8b5cf6', type: 'cat_funders', categoryName },
-                { id: `cat-${categoryName}-projects-list`, name: 'Liste des Projets', val: 8, color: '#34d399', type: 'cat_projects_list', categoryName }
-            ];
-
-            const newLinks = newNodes.map(n => ({ source: id, target: n.id }));
-            addNodesAndLinks(id, newNodes, newLinks);
-            setInfo(`Catégorie ${name}: Choisissez une vue.`);
-            return;
-        }
-
-        // 2.5.1 Category -> Projects List
-        if (type === 'cat_projects_list') {
-            const catProjects = researcherCache[`cat-projects-${node.categoryName}`] || [];
-
-            const newNodes = catProjects.map(p => ({
-                id: p._unique_id || `proj-${p.NOM}`,
-                name: p.NOM,
-                val: 6,
-                color: '#34d399',
-                type: 'item_project_global',
-                data: p
-            }));
-
-            const newLinks = newNodes.map(n => ({ source: id, target: n.id }));
-            addNodesAndLinks(id, newNodes, newLinks);
-            setInfo(`${catProjects.length} projets ${node.categoryName}.`);
-            return;
-        }
-
-        // 2.5.2 Category -> Partners for this category
-        if (type === 'cat_partners') {
-            const catProjects = researcherCache[`cat-projects-${node.categoryName}`] || [];
-            const partnerMap = {};
-
-            catProjects.forEach(p => {
-                const partnersStr = p.PARTENAIRES || '';
-                if (!partnersStr.trim()) return;
-                const partners = partnersStr.split(',').map(s => s.trim()).filter(s => s);
-                partners.forEach(partner => {
-                    if (!partnerMap[partner]) partnerMap[partner] = [];
-                    partnerMap[partner].push(p);
-                });
-            });
-
-            setResearcherCache(prev => ({ ...prev, [`cat-partner-projects-${node.categoryName}`]: partnerMap }));
-
-            const newNodes = Object.keys(partnerMap).map(partner => ({
-                id: `cat-partner-${node.categoryName}-${partner.replace(/\s+/g, '_')}`,
-                name: partner,
-                val: 5,
-                color: '#fbbf24',
-                type: 'cat_item_partner',
-                partnerName: partner,
-                categoryName: node.categoryName
-            }));
-
-            const newLinks = newNodes.map(n => ({ source: id, target: n.id }));
-            addNodesAndLinks(id, newNodes, newLinks);
-            setInfo(`${Object.keys(partnerMap).length} partenaires pour ${node.categoryName}.`);
-            return;
-        }
-
-        // 2.5.3 Category Partner item -> Show projects for this partner in this category
-        if (type === 'cat_item_partner') {
-            const partnerMap = researcherCache[`cat-partner-projects-${node.categoryName}`] || {};
-            const projects = partnerMap[node.partnerName] || [];
-
-            const newNodes = projects.map(p => ({
-                id: `cat-partner-proj-${node.categoryName}-${p._unique_id}`,
-                name: p.NOM,
-                val: 4,
-                color: '#fcd34d',
-                type: 'item_project_leaf',
-                data: p
-            }));
-
-            const newLinks = newNodes.map(n => ({ source: id, target: n.id }));
-            addNodesAndLinks(id, newNodes, newLinks);
-            setInfo(`${projects.length} projets avec ${node.partnerName}.`);
-            return;
-        }
-
-        // 2.5.4 Category -> Funders for this category
-        if (type === 'cat_funders') {
-            const catProjects = researcherCache[`cat-projects-${node.categoryName}`] || [];
-            const funderMap = {};
-
-            catProjects.forEach(p => {
-                const fundersStr = p.FINANCEURS || '';
-                if (!fundersStr.trim()) return;
-                const funders = fundersStr.split(',').map(s => s.trim()).filter(s => s);
-                funders.forEach(funder => {
-                    if (!funderMap[funder]) funderMap[funder] = [];
-                    funderMap[funder].push(p);
-                });
-            });
-
-            setResearcherCache(prev => ({ ...prev, [`cat-funder-projects-${node.categoryName}`]: funderMap }));
-
-            const newNodes = Object.keys(funderMap).map(funder => ({
-                id: `cat-funder-${node.categoryName}-${funder.replace(/\s+/g, '_')}`,
-                name: funder,
-                val: 5,
-                color: '#a78bfa',
-                type: 'cat_item_funder',
-                funderName: funder,
-                categoryName: node.categoryName
-            }));
-
-            const newLinks = newNodes.map(n => ({ source: id, target: n.id }));
-            addNodesAndLinks(id, newNodes, newLinks);
-            setInfo(`${Object.keys(funderMap).length} financeurs pour ${node.categoryName}.`);
-            return;
-        }
-
-        // 2.5.5 Category Funder item -> Show projects funded by this funder in this category
-        if (type === 'cat_item_funder') {
-            const funderMap = researcherCache[`cat-funder-projects-${node.categoryName}`] || {};
-            const projects = funderMap[node.funderName] || [];
-
-            const newNodes = projects.map(p => ({
-                id: `cat-funder-proj-${node.categoryName}-${p._unique_id}`,
-                name: p.NOM,
-                val: 4,
-                color: '#c4b5fd',
-                type: 'item_project_leaf',
-                data: p
-            }));
-
-            const newLinks = newNodes.map(n => ({ source: id, target: n.id }));
-            addNodesAndLinks(id, newNodes, newLinks);
-            setInfo(`${projects.length} projets financés par ${node.funderName}.`);
-            return;
-        }
-
-        // 2.5.6 Category -> Collaborators from HAL for the projects in this category
-        if (type === 'cat_collab_hal') {
-            const catProjects = researcherCache[`cat-projects-${node.categoryName}`] || [];
-
-            if (catProjects.length === 0) {
-                setInfo("Aucun projet dans cette catégorie.");
                 return;
             }
 
-            setLoading(true);
-            setInfo("Chargement des collaborateurs depuis HAL...");
+            // 2.1 Projects by Category
+            if (type === 'proj_by_category') {
+                const projects = researcherCache.allProjects || [];
+                const types = [...new Set(projects.map(p => p.type || 'Autres'))];
 
-            try {
-                // Search HAL for publications mentioning these project names
-                const projectNames = catProjects.map(p => p.NOM).join('" OR "');
-                const halUrl = `https://api.archives-ouvertes.fr/search/?q=text:("${encodeURIComponent(projectNames)}")&wt=json&rows=0&facet=true&facet.field=authFullName_s&facet.limit=30&facet.mincount=1`;
-
-                const response = await fetch(halUrl);
-                const data = await response.json();
-
-                const authorFacet = data.facet_counts?.facet_fields?.authFullName_s || [];
-                const collaborators = [];
-                for (let i = 0; i < authorFacet.length; i += 2) {
-                    collaborators.push({ name: authorFacet[i], count: authorFacet[i + 1] });
-                }
-
-                if (collaborators.length === 0) {
-                    setInfo("Aucun collaborateur HAL trouvé pour ces projets.");
-                    setLoading(false);
-                    return;
-                }
-
-                const newNodes = collaborators.map(c => ({
-                    id: `cat-hal-collab-${node.categoryName}-${c.name.replace(/\s+/g, '_')}`,
-                    name: c.name,
-                    val: 4,
-                    color: '#f9a8d4',
-                    type: 'item_collab',
-                    collabName: c.name
+                const newNodes = types.map(t => ({
+                    id: `proj-type-${t}`, name: t, color: '#10b981', type: 'project_category', raw_type: t
                 }));
 
-                const newLinks = newNodes.map(n => ({ source: id, target: n.id }));
-                addNodesAndLinks(id, newNodes, newLinks);
-                setInfo(`${collaborators.length} collaborateurs HAL trouvés.`);
-            } catch (e) {
-                console.error(e);
-                setInfo("Erreur de chargement HAL.");
-            } finally {
-                setLoading(false);
-            }
-            return;
-        }
-
-        // 3. Researchers Group Expansion -> Categories
-        if (type === 'group_researchers') {
-            setLoading(true);
-            try {
-                const res = await api.get('/researchers');
-                const researchers = res.data;
-
-                // Extract categories
-                const categories = [...new Set(researchers.map(r => r.category || 'Uncategorized'))];
-
-                const newNodes = categories.map(cat => ({
-                    id: `cat-${cat}`,
-                    name: cat,
-                    val: 12,
-                    color: '#8b5cf6', // Violet
-                    type: 'category',
-                    raw_category: cat
-                }));
-
-                const newLinks = newNodes.map(n => ({ source: id, target: n.id }));
-                addNodesAndLinks(id, newNodes, newLinks);
-
-                // Store all researchers in cache to use when clicking category
                 const cacheUpdate = {};
-                researchers.forEach(r => {
-                    const cat = r.category || 'Uncategorized';
-                    if (!cacheUpdate[cat]) cacheUpdate[cat] = [];
-                    cacheUpdate[cat].push(r);
+                projects.forEach(p => {
+                    const t = p.type || 'Autres';
+                    if (!cacheUpdate[t]) cacheUpdate[t] = [];
+                    cacheUpdate[t].push(p);
                 });
                 setResearcherCache(prev => ({ ...prev, ...cacheUpdate }));
-
-                setInfo("Expanded Researchers. Click a category.");
-            } catch (err) {
-                console.error(err);
-                setInfo("Error loading researchers.");
-            } finally {
-                setLoading(false);
-            }
-            return;
-        }
-
-        // 4. Category Expansion -> Specific Researchers
-        if (type === 'category') {
-            const categoryResearchers = researcherCache[node.raw_category] || [];
-
-            const newNodes = categoryResearchers.map(r => ({
-                id: r._unique_id,
-                name: r.name,
-                val: 8,
-                color: '#60a5fa', // Lighter blue
-                type: 'researcher',
-                data: r
-            }));
-
-            const newLinks = newNodes.map(n => ({ source: id, target: n.id }));
-            addNodesAndLinks(id, newNodes, newLinks);
-            setInfo(`Showing researchers in ${name}.`);
-            return;
-        }
-
-        // 5. Researcher Expansion -> Projets (Personal) & Collaborateurs (Personal)
-        if (type === 'researcher') {
-            const newNodes = [
-                { id: `p-proj-${id}`, name: 'Projets', val: 6, color: '#f59e0b', type: 'researcher_projects', parentId: id },
-                { id: `p-collab-${id}`, name: 'Collaborateurs', val: 6, color: '#ec4899', type: 'researcher_collabs', parentId: id }
-            ];
-            const newLinks = newNodes.map(n => ({ source: id, target: n.id }));
-            addNodesAndLinks(id, newNodes, newLinks);
-
-            // Prefetch details
-            setInfo(`Loading data for ${name}...`);
-            try {
-                const res = await api.get(`/researcher/${id}`);
-                setResearcherCache(prev => ({ ...prev, [`details-${id}`]: res.data }));
-                setInfo(`Loaded data for ${name}. Click sub-nodes to see details.`);
-            } catch (e) {
-                console.error(e);
-                setInfo(`Error loading details for ${name}.`);
-            }
-            return;
-        }
-
-        // 6. Researcher Projects Expansion
-        if (type === 'researcher_projects') {
-            const parentId = node.parentId;
-            const details = researcherCache[`details-${parentId}`];
-
-            if (!details || !details.stats) {
-                setInfo("Please wait, data is loading or missing.");
-                // We should probably allow trying to fetch again if missing, but for now cache check is simple
+                addNodesAndLinks(id, newNodes);
+                setInfo("Choisissez une catégorie de projet.");
                 return;
             }
 
-            const stats = details.stats.hal.found ? details.stats.hal : details.stats.dblp;
-
-            if (!stats || !stats.recent_publications) {
-                setInfo("No projects/publications found.");
-                return;
-            }
-
-            const pubs = stats.recent_publications || [];
-            const newNodes = pubs.slice(0, 5).map((pub, idx) => {
-                // HAL uses title_s (can be string or array), DBLP might use title
-                let rawTitle = pub.title_s || pub.title || 'Untitled Publication';
-                if (Array.isArray(rawTitle)) rawTitle = rawTitle[0];
-                const displayTitle = rawTitle.length > 35 ? rawTitle.substring(0, 35) + '...' : rawTitle;
-
-                // Store authors for later expansion
-                let authors = pub.authFullName_s || [];
-                if (!Array.isArray(authors)) authors = [authors];
-
-                return {
-                    id: `pub-${parentId}-${idx}`,
-                    name: displayTitle,
-                    fullTitle: rawTitle,
-                    authors: authors,
-                    val: 4,
-                    color: '#fcd34d',
-                    type: 'item_project'
-                };
-            });
-
-            const newLinks = newNodes.map(n => ({ source: id, target: n.id }));
-            addNodesAndLinks(id, newNodes, newLinks);
-            setInfo(`Showing ${pubs.length} recent publications.`);
-            return;
-        }
-
-        // 6.5 Publication Expansion -> Show all co-authors
-        if (type === 'item_project') {
-            const authors = node.authors || [];
-
-            if (authors.length === 0) {
-                setInfo("No authors found for this publication.");
-                return;
-            }
-
-            const newNodes = authors.map((authorName, idx) => {
-                const authorId = `author-${node.id}-${authorName.replace(/\s+/g, '_')}`;
-                return {
-                    id: authorId,
-                    name: authorName,
-                    collabName: authorName,
-                    val: 4,
-                    color: '#f9a8d4',
-                    type: 'item_collab'
-                };
-            });
-
-            const newLinks = newNodes.map(n => ({ source: node.id, target: n.id }));
-            addNodesAndLinks(node.id, newNodes, newLinks);
-            setInfo(`Showing ${authors.length} authors.`);
-            return;
-        }
-
-        // 7. Researcher Collaborators Expansion
-        if (type === 'researcher_collabs') {
-            const parentId = node.parentId;
-            const details = researcherCache[`details-${parentId}`];
-
-            if (!details || !details.stats) {
-                setInfo("Please wait, data is loading or missing.");
-                return;
-            }
-
-            const stats = details.stats.hal.found ? details.stats.hal : details.stats.dblp;
-
-            if (!stats || !stats.top_collaborators) {
-                setInfo("No collaborators found.");
-                return;
-            }
-
-            const collabs = Object.entries(stats.top_collaborators).slice(0, 10);
-            const newNodes = collabs.map(([collabName, count], idx) => {
-                // Use a unique ID based on the collaborator's name (hashed or sanitized)
-                const collabId = `collab-${parentId}-${collabName.replace(/\s+/g, '_')}`;
-                return {
-                    id: collabId,
-                    name: collabName,
-                    collabName: collabName, // Store original name for HAL lookup
-                    val: 4,
-                    color: '#f9a8d4',
-                    type: 'item_collab'
-                };
-            });
-
-            const newLinks = newNodes.map(n => ({ source: id, target: n.id }));
-            addNodesAndLinks(id, newNodes, newLinks);
-            setInfo("Expanded Collaborators.");
-            return;
-        }
-
-        // 8. Collaborator Node Expansion -> Treat like a researcher (recursive)
-        if (type === 'item_collab') {
-            const collabName = node.collabName || node.name;
-            setInfo(`Loading data for ${collabName}...`);
-            setLoading(true);
-
-            try {
-                // Fetch HAL stats directly by name using the global stats endpoint with author filter
-                // Or we can directly query HAL. For simplicity, let's use a direct HAL search.
-                const halUrl = `https://api.archives-ouvertes.fr/search/?q=authFullName_t:"${encodeURIComponent(collabName)}"&wt=json&fl=title_s,producedDateY_i,docType_s,keyword_s,authFullName_s,journalTitle_s&rows=50&sort=producedDateY_i%20desc`;
-
-                const response = await fetch(halUrl);
-                const data = await response.json();
-                const docs = data.response?.docs || [];
-
-                if (docs.length === 0) {
-                    setInfo(`No publications found for ${collabName}.`);
-                    setLoading(false);
-                    return;
-                }
-
-                // Process stats like in backend
-                const keywords = [];
-                const coAuthors = [];
-                const collabNameLower = collabName.toLowerCase();
-
-                docs.forEach(d => {
-                    if (d.keyword_s) {
-                        if (Array.isArray(d.keyword_s)) keywords.push(...d.keyword_s);
-                        else keywords.push(d.keyword_s);
-                    }
-                    if (d.authFullName_s) {
-                        const authors = Array.isArray(d.authFullName_s) ? d.authFullName_s : [d.authFullName_s];
-                        authors.forEach(auth => {
-                            if (auth.toLowerCase() !== collabNameLower) {
-                                coAuthors.push(auth);
-                            }
-                        });
-                    }
+            // 2.2 Partners Group
+            if (type === 'proj_partners_group') {
+                const projects = researcherCache.allProjects || [];
+                const partnerMap = {};
+                projects.forEach(p => {
+                    const partnersStr = p.PARTENAIRES || '';
+                    if (!partnersStr.trim()) return;
+                    const partners = partnersStr.split(',').map(s => s.trim()).filter(Boolean);
+                    partners.forEach(partner => {
+                        if (!partnerMap[partner]) partnerMap[partner] = [];
+                        partnerMap[partner].push(p);
+                    });
                 });
+                setResearcherCache(prev => ({ ...prev, partnerProjects: partnerMap }));
 
-                // Count collaborators
-                const collabCounts = {};
-                coAuthors.forEach(name => {
-                    collabCounts[name] = (collabCounts[name] || 0) + 1;
-                });
-                const topCollaborators = Object.entries(collabCounts)
-                    .sort((a, b) => b[1] - a[1])
-                    .slice(0, 10)
-                    .reduce((acc, [k, v]) => { acc[k] = v; return acc; }, {});
-
-                // Store in cache
-                const cacheKey = `details-${node.id}`;
-                setResearcherCache(prev => ({
-                    ...prev,
-                    [cacheKey]: {
-                        stats: {
-                            hal: {
-                                found: true,
-                                recent_publications: docs.slice(0, 5),
-                                top_collaborators: topCollaborators
-                            }
-                        }
-                    }
+                const newNodes = Object.keys(partnerMap).slice(0, 30).map(partner => ({
+                    id: `partner-${partner.replace(/\s+/g, '_')}`, name: partner, color: '#fbbf24', type: 'item_partner', partnerName: partner
                 }));
-
-                // Add sub-nodes (Projets & Collaborateurs)
-                const newNodes = [
-                    { id: `p-proj-${node.id}`, name: 'Publications', val: 6, color: '#f59e0b', type: 'researcher_projects', parentId: node.id },
-                    { id: `p-collab-${node.id}`, name: 'Collaborateurs', val: 6, color: '#ec4899', type: 'researcher_collabs', parentId: node.id }
-                ];
-                const newLinks = newNodes.map(n => ({ source: node.id, target: n.id }));
-                addNodesAndLinks(node.id, newNodes, newLinks);
-
-                setInfo(`Loaded ${docs.length} publications for ${collabName}.`);
-            } catch (e) {
-                console.error(e);
-                setInfo(`Error loading data for ${collabName}.`);
-            } finally {
-                setLoading(false);
+                addNodesAndLinks(id, newNodes);
+                setInfo(`${Object.keys(partnerMap).length} partenaires trouvés.`);
+                return;
             }
-            return;
-        }
 
-    }, [expandedNodes, researcherCache, removeNodeAndDescendants]);
+            // 2.3 Partner Item -> Projects
+            if (type === 'item_partner') {
+                const partnerName = customData.partnerName;
+                const projects = (researcherCache.partnerProjects || {})[partnerName] || [];
+                const newNodes = projects.map(p => ({
+                    id: `partner-proj-${p._unique_id}`, name: p.NOM, subLabel: 'Project', color: '#fcd34d', type: 'item_project_leaf', data: p
+                }));
+                addNodesAndLinks(id, newNodes);
+                setInfo(`${projects.length} projets avec ${partnerName}.`);
+                return;
+            }
+
+            if (type === 'proj_funders_group') {
+                 const projects = researcherCache.allProjects || [];
+                 const funderMap = {};
+                 projects.forEach(p => {
+                     const fundersStr = p.FINANCEURS || '';
+                     if (!fundersStr.trim()) return;
+                     const funders = fundersStr.split(',').map(s => s.trim()).filter(Boolean);
+                     funders.forEach(funder => {
+                         if (!funderMap[funder]) funderMap[funder] = [];
+                         funderMap[funder].push(p);
+                     });
+                 });
+                 setResearcherCache(prev => ({ ...prev, funderProjects: funderMap }));
+ 
+                 const newNodes = Object.keys(funderMap).slice(0, 30).map(funder => ({
+                     id: `funder-${funder.replace(/\s+/g, '_')}`, name: funder, color: '#a78bfa', type: 'item_funder', funderName: funder
+                 }));
+                 addNodesAndLinks(id, newNodes);
+                 setInfo(`${Object.keys(funderMap).length} financeurs trouvés.`);
+                 return;
+             }
+ 
+             if (type === 'item_funder') {
+                 const funderName = customData.funderName;
+                 const projects = (researcherCache.funderProjects || {})[funderName] || [];
+                 const newNodes = projects.map(p => ({
+                     id: `funder-proj-${p._unique_id}`, name: p.NOM, subLabel: 'Project', color: '#c4b5fd', type: 'item_project_leaf', data: p
+                 }));
+                 addNodesAndLinks(id, newNodes);
+                 setInfo(`${projects.length} projets financés par ${funderName}.`);
+                 return;
+             }
+
+            // 2.6 Collaborators HAL (Global)
+            if (type === 'proj_collab_hal') {
+                setLoading(true);
+                setInfo("Chargement des collaborateurs depuis HAL...");
+                try {
+                    const halUrl = `https://api.archives-ouvertes.fr/search/?q=structAcronym_s:"LISTIC"&wt=json&rows=0&facet=true&facet.field=authFullName_s&facet.limit=30&facet.mincount=5`;
+                    const response = await fetch(halUrl);
+                    const data = await response.json();
+                    const authorFacet = data.facet_counts?.facet_fields?.authFullName_s || [];
+                    const collaborators = [];
+                    for (let i = 0; i < authorFacet.length; i += 2) {
+                        collaborators.push({ name: authorFacet[i], count: authorFacet[i + 1] });
+                    }
+                    const newNodes = collaborators.map(c => ({
+                        id: `hal-collab-${c.name.replace(/\s+/g, '_')}`, name: c.name, subLabel: `Docs: ${c.count}`, color: '#f9a8d4', type: 'item_collab', collabName: c.name
+                    }));
+                    addNodesAndLinks(id, newNodes);
+                    setInfo(`${collaborators.length} collaborateurs HAL trouvés.`);
+                } catch (e) {
+                    console.error(e);
+                    setInfo("Erreur de chargement HAL.");
+                } finally {
+                    setLoading(false);
+                }
+                return;
+            }
+
+            // Category Expand
+            if (type === 'project_category') {
+                const categoryName = customData.raw_type;
+                const catProjects = researcherCache[categoryName] || [];
+                setResearcherCache(prev => ({ ...prev, [`cat-projects-${categoryName}`]: catProjects }));
+
+                const newNodes = [
+                    { id: `cat-${categoryName}-collab-hal`, name: 'Collaborateurs (HAL)', color: '#ec4899', type: 'cat_collab_hal', categoryName },
+                    { id: `cat-${categoryName}-partners`, name: 'Partenaires', color: '#f59e0b', type: 'cat_partners', categoryName },
+                    { id: `cat-${categoryName}-funders`, name: 'Financeurs', color: '#8b5cf6', type: 'cat_funders', categoryName },
+                    { id: `cat-${categoryName}-projects-list`, name: 'Liste des Projets', color: '#34d399', type: 'cat_projects_list', categoryName }
+                ];
+                addNodesAndLinks(id, newNodes);
+                setInfo(`Catégorie ${name}: Choisissez une vue.`);
+                return;
+            }
+
+            if (type === 'cat_projects_list') {
+                const catProjects = researcherCache[`cat-projects-${customData.categoryName}`] || [];
+                const newNodes = catProjects.map(p => ({
+                    id: p._unique_id || `proj-${p.NOM}`, name: p.NOM, color: '#34d399', type: 'item_project_global', data: p
+                }));
+                addNodesAndLinks(id, newNodes);
+                setInfo(`${catProjects.length} projets ${customData.categoryName}.`);
+                return;
+            }
+
+            if (type === 'cat_partners') {
+                const catProjects = researcherCache[`cat-projects-${customData.categoryName}`] || [];
+                const partnerMap = {};
+                catProjects.forEach(p => {
+                    const partnersStr = p.PARTENAIRES || '';
+                    if (!partnersStr.trim()) return;
+                    const partners = partnersStr.split(',').map(s => s.trim()).filter(Boolean);
+                    partners.forEach(partner => {
+                        if (!partnerMap[partner]) partnerMap[partner] = [];
+                        partnerMap[partner].push(p);
+                    });
+                });
+                setResearcherCache(prev => ({ ...prev, [`cat-partner-projects-${customData.categoryName}`]: partnerMap }));
+                const newNodes = Object.keys(partnerMap).map(partner => ({
+                    id: `cat-partner-${customData.categoryName}-${partner.replace(/\s+/g, '_')}`, name: partner, color: '#fbbf24', type: 'cat_item_partner', partnerName: partner, categoryName: customData.categoryName
+                }));
+                addNodesAndLinks(id, newNodes);
+                setInfo(`${Object.keys(partnerMap).length} partenaires pour ${customData.categoryName}.`);
+                return;
+            }
+
+            if (type === 'cat_item_partner') {
+                const partnerMap = researcherCache[`cat-partner-projects-${customData.categoryName}`] || {};
+                const projects = partnerMap[customData.partnerName] || [];
+                const newNodes = projects.map(p => ({
+                    id: `cat-partner-proj-${customData.categoryName}-${p._unique_id}`, name: p.NOM, color: '#fcd34d', type: 'item_project_leaf', data: p
+                }));
+                addNodesAndLinks(id, newNodes);
+                setInfo(`${projects.length} projets avec ${customData.partnerName}.`);
+                return;
+            }
+
+            if (type === 'cat_funders') {
+                 const catProjects = researcherCache[`cat-projects-${customData.categoryName}`] || [];
+                 const funderMap = {};
+                 catProjects.forEach(p => {
+                     const fundersStr = p.FINANCEURS || '';
+                     if (!fundersStr.trim()) return;
+                     const funders = fundersStr.split(',').map(s => s.trim()).filter(Boolean);
+                     funders.forEach(funder => {
+                         if (!funderMap[funder]) funderMap[funder] = [];
+                         funderMap[funder].push(p);
+                     });
+                 });
+                 setResearcherCache(prev => ({ ...prev, [`cat-funder-projects-${customData.categoryName}`]: funderMap }));
+                 const newNodes = Object.keys(funderMap).map(funder => ({
+                     id: `cat-funder-${customData.categoryName}-${funder.replace(/\s+/g, '_')}`, name: funder, color: '#a78bfa', type: 'cat_item_funder', funderName: funder, categoryName: customData.categoryName
+                 }));
+                 addNodesAndLinks(id, newNodes);
+                 setInfo(`${Object.keys(funderMap).length} financeurs pour ${customData.categoryName}.`);
+                 return;
+            }
+ 
+            if (type === 'cat_item_funder') {
+                 const funderMap = researcherCache[`cat-funder-projects-${customData.categoryName}`] || {};
+                 const projects = funderMap[customData.funderName] || [];
+                 const newNodes = projects.map(p => ({
+                     id: `cat-funder-proj-${customData.categoryName}-${p._unique_id}`, name: p.NOM, color: '#c4b5fd', type: 'item_project_leaf', data: p
+                 }));
+                 addNodesAndLinks(id, newNodes);
+                 setInfo(`${projects.length} projets avec ${customData.funderName}.`);
+                 return;
+            }
+
+            if (type === 'cat_collab_hal') {
+                const catProjects = researcherCache[`cat-projects-${customData.categoryName}`] || [];
+                if (catProjects.length === 0) {
+                    setInfo("Aucun projet dans cette catégorie."); return;
+                }
+                setLoading(true);
+                try {
+                    const projectNames = catProjects.map(p => p.NOM).join('" OR "');
+                    const halUrl = `https://api.archives-ouvertes.fr/search/?q=text:("${encodeURIComponent(projectNames)}")&wt=json&rows=0&facet=true&facet.field=authFullName_s&facet.limit=30&facet.mincount=1`;
+                    const response = await fetch(halUrl);
+                    const data = await response.json();
+                    const authorFacet = data.facet_counts?.facet_fields?.authFullName_s || [];
+                    const collaborators = [];
+                    for (let i = 0; i < authorFacet.length; i += 2) {
+                        collaborators.push({ name: authorFacet[i], count: authorFacet[i + 1] });
+                    }
+                    const newNodes = collaborators.map(c => ({
+                        id: `cat-hal-collab-${customData.categoryName}-${c.name.replace(/\s+/g, '_')}`, name: c.name, subLabel: `Docs: ${c.count}`, color: '#f9a8d4', type: 'item_collab', collabName: c.name
+                    }));
+                    addNodesAndLinks(id, newNodes);
+                    setInfo(`${collaborators.length} collaborateurs HAL trouvés.`);
+                } catch (e) {
+                    console.error(e);
+                    setInfo("Erreur de chargement HAL.");
+                } finally {
+                    setLoading(false);
+                }
+                return;
+            }
+
+            // Researchers
+            if (type === 'group_researchers') {
+                setLoading(true);
+                try {
+                    const res = await api.get('/researchers');
+                    const researchers = res.data;
+                    const categories = [...new Set(researchers.map(r => r.category || 'Uncategorized'))];
+                    const newNodes = categories.map(cat => ({
+                        id: `cat-${cat}`, name: cat, color: '#8b5cf6', type: 'category', raw_category: cat
+                    }));
+                    const cacheUpdate = {};
+                    researchers.forEach(r => {
+                        const cat = r.category || 'Uncategorized';
+                        if (!cacheUpdate[cat]) cacheUpdate[cat] = [];
+                        cacheUpdate[cat].push(r);
+                    });
+                    setResearcherCache(prev => ({ ...prev, ...cacheUpdate }));
+                    addNodesAndLinks(id, newNodes);
+                    setInfo("Expanded Researchers. Click a category.");
+                } catch (err) {
+                    console.error(err);
+                    setInfo("Error loading researchers.");
+                } finally {
+                    setLoading(false);
+                }
+                return;
+            }
+
+            if (type === 'category') {
+                const categoryResearchers = researcherCache[customData.raw_category] || [];
+                const newNodes = categoryResearchers.map(r => ({
+                    id: r._unique_id, name: r.name, subLabel: r.status, color: '#60a5fa', type: 'researcher', data: r
+                }));
+                addNodesAndLinks(id, newNodes);
+                setInfo(`Showing researchers in ${name}.`);
+                return;
+            }
+
+            if (type === 'researcher') {
+                const newNodes = [
+                    { id: `p-proj-${id}`, name: 'Publications', color: '#f59e0b', type: 'researcher_projects', parentId: id },
+                    { id: `p-collab-${id}`, name: 'Collaborateurs', color: '#ec4899', type: 'researcher_collabs', parentId: id }
+                ];
+                addNodesAndLinks(id, newNodes);
+                setInfo(`Loading data for ${name}...`);
+                try {
+                    const res = await api.get(`/researcher/${id}`);
+                    setResearcherCache(prev => ({ ...prev, [`details-${id}`]: res.data }));
+                    setInfo(`Loaded data for ${name}. Click sub-nodes to see details.`);
+                } catch (e) {
+                    console.error(e);
+                    setInfo(`Error loading details for ${name}.`);
+                }
+                return;
+            }
+
+            if (type === 'researcher_projects') {
+                const parentId = customData.parentId;
+                const details = researcherCache[`details-${parentId}`];
+                if (!details || !details.stats) { setInfo("Data missing."); return; }
+                const stats = details.stats.hal.found ? details.stats.hal : details.stats.dblp;
+                const pubs = stats?.recent_publications || [];
+                const newNodes = pubs.slice(0, 5).map((pub, idx) => {
+                    let rawTitle = pub.title_s || pub.title || 'Untitled Publication';
+                    if (Array.isArray(rawTitle)) rawTitle = rawTitle[0];
+                    let authors = pub.authFullName_s || [];
+                    if (!Array.isArray(authors)) authors = [authors];
+                    return {
+                        id: `pub-${parentId}-${idx}`, name: rawTitle, authors, color: '#fcd34d', type: 'item_project'
+                    };
+                });
+                addNodesAndLinks(id, newNodes);
+                setInfo(`Showing ${pubs.length} recent publications.`);
+                return;
+            }
+
+            if (type === 'item_project') {
+                const authors = customData.authors || [];
+                const newNodes = authors.map((authorName) => ({
+                    id: `author-${id}-${authorName.replace(/\s+/g, '_')}`, name: authorName, color: '#f9a8d4', type: 'item_collab', collabName: authorName
+                }));
+                addNodesAndLinks(id, newNodes);
+                setInfo(`Showing ${authors.length} authors.`);
+                return;
+            }
+
+            if (type === 'researcher_collabs') {
+                const parentId = customData.parentId;
+                const details = researcherCache[`details-${parentId}`];
+                if (!details || !details.stats) { setInfo("Data missing."); return; }
+                const stats = details.stats.hal.found ? details.stats.hal : details.stats.dblp;
+                const collabs = Object.entries(stats?.top_collaborators || {}).slice(0, 10);
+                const newNodes = collabs.map(([collabName]) => ({
+                    id: `collab-${parentId}-${collabName.replace(/\s+/g, '_')}`, name: collabName, color: '#f9a8d4', type: 'item_collab', collabName
+                }));
+                addNodesAndLinks(id, newNodes);
+                setInfo("Expanded Collaborators.");
+                return;
+            }
+
+            if (type === 'item_collab') {
+                const collabName = customData.collabName || customData.label;
+                setInfo(`Loading data for ${collabName}...`);
+                setLoading(true);
+                try {
+                    const halUrl = `https://api.archives-ouvertes.fr/search/?q=authFullName_t:"${encodeURIComponent(collabName)}"&wt=json&fl=title_s,producedDateY_i,docType_s,keyword_s,authFullName_s,journalTitle_s&rows=50&sort=producedDateY_i%20desc`;
+                    const response = await fetch(halUrl);
+                    const data = await response.json();
+                    const docs = data.response?.docs || [];
+                    if (docs.length === 0) {
+                        setInfo(`No publications found for ${collabName}.`); setLoading(false); return;
+                    }
+                    const coAuthors = [];
+                    docs.forEach(d => {
+                        if (d.authFullName_s) {
+                            const authors = Array.isArray(d.authFullName_s) ? d.authFullName_s : [d.authFullName_s];
+                            authors.forEach(auth => {
+                                if (auth.toLowerCase() !== collabName.toLowerCase()) {
+                                    coAuthors.push(auth);
+                                }
+                            });
+                        }
+                    });
+                    const collabCounts = {};
+                    coAuthors.forEach(name => { collabCounts[name] = (collabCounts[name] || 0) + 1; });
+                    const topCollaborators = Object.entries(collabCounts).sort((a,b)=>b[1]-a[1]).slice(0,10).reduce((acc, [k,v])=>{acc[k]=v;return acc}, {});
+
+                    setResearcherCache(prev => ({
+                        ...prev, [`details-${id}`]: { stats: { hal: { found: true, recent_publications: docs.slice(0,5), top_collaborators: topCollaborators } } }
+                    }));
+
+                    const newNodes = [
+                        { id: `p-proj-${id}`, name: 'Publications', color: '#f59e0b', type: 'researcher_projects', parentId: id },
+                        { id: `p-collab-${id}`, name: 'Collaborateurs', color: '#ec4899', type: 'researcher_collabs', parentId: id }
+                    ];
+                    addNodesAndLinks(id, newNodes);
+                    setInfo(`Loaded ${docs.length} publications for ${collabName}.`);
+                } catch (e) {
+                    console.error(e);
+                    setInfo(`Error loading data for ${collabName}.`);
+                } finally {
+                    setLoading(false);
+                }
+                return;
+            }
+
+        } catch (e) {
+            console.error(e);
+        }
+    }, [expandedNodes, addNodesAndLinks, removeNodeAndDescendants, researcherCache]);
 
     return (
-        <div className="h-[calc(100vh-100px)] relative overflow-hidden bg-slate-900 mx-4 rounded-3xl shadow-2xl border border-slate-800">
+        <div className="h-[calc(100vh-100px)] relative overflow-hidden bg-slate-950 mx-4 rounded-3xl shadow-2xl border border-slate-800">
             {/* Info Panel */}
-            <div className="absolute top-4 left-4 z-10 glass-card-dark p-3 max-w-xs pointer-events-none select-none">
-                <p className="text-slate-300 text-xs mb-2">
+            <div className="absolute top-4 left-4 z-10 p-3 max-w-xs pointer-events-none select-none">
+                <p className="text-slate-400 text-xs mb-2">
                     Click to expand, click again to collapse.
                 </p>
-                <div className="text-xs text-blue-300 font-mono bg-slate-800 p-2 rounded border border-slate-700">
+                <div className="text-xs text-blue-400 font-mono bg-slate-900/80 backdrop-blur-md p-2 rounded-xl border border-slate-800/80 shadow-lg">
                     &gt; {info}
                 </div>
             </div>
 
-            {/* Search Bar */}
-            <div className="absolute top-4 right-4 z-20">
+            {/* Search and Action Bar */}
+            <div className="absolute top-4 right-4 z-20 flex flex-col items-end">
                 <div className="relative">
-                    <div className="flex items-center bg-slate-800 border border-slate-700 rounded-lg overflow-hidden shadow-lg">
+                    <div className="flex items-center bg-slate-900/90 backdrop-blur-md border border-slate-700/80 rounded-xl overflow-hidden shadow-2xl transition-all focus-within:border-blue-500/50 focus-within:ring-2 focus-within:ring-blue-500/20">
                         <Search className="w-4 h-4 text-slate-400 ml-3" />
                         <input
                             type="text"
@@ -871,193 +691,88 @@ export default function NetworkGraph() {
                             }}
                             onFocus={() => setShowSearchResults(true)}
                             onBlur={() => setTimeout(() => setShowSearchResults(false), 200)}
-                            className="bg-transparent text-white text-sm px-3 py-2 w-64 outline-none placeholder-slate-500"
+                            className="bg-transparent text-white text-sm px-3 py-2.5 w-64 outline-none placeholder-slate-500"
                         />
                         {searchQuery && (
                             <button
-                                onClick={() => {
-                                    setSearchQuery('');
-                                    setShowSearchResults(false);
-                                }}
-                                className="text-slate-400 hover:text-white px-2"
+                                onClick={() => { setSearchQuery(''); setShowSearchResults(false); }}
+                                className="text-slate-400 hover:text-white px-3 transition-colors"
                             >
                                 ✕
                             </button>
                         )}
                     </div>
-
-                    {/* Search Results Dropdown */}
                     {showSearchResults && searchResults.length > 0 && (
-                        <div className="absolute top-full left-0 right-0 mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-xl max-h-64 overflow-y-auto">
-                            {searchResults.map((node, idx) => (
+                        <div className="absolute top-full right-0 mt-2 w-full bg-slate-900/95 backdrop-blur-xl border border-slate-700/80 rounded-xl shadow-2xl max-h-64 overflow-y-auto z-50">
+                            {searchResults.map((node) => (
                                 <button
                                     key={node.id}
                                     onClick={() => zoomToNode(node)}
-                                    className="w-full text-left px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white transition-colors flex items-center gap-2 border-b border-slate-700 last:border-b-0"
+                                    className="w-full text-left px-4 py-3 text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition-colors flex items-center gap-3 border-b border-slate-800/50 last:border-b-0"
                                 >
                                     <span
-                                        className="w-3 h-3 rounded-full flex-shrink-0"
-                                        style={{ backgroundColor: node.color }}
+                                        className="w-2.5 h-2.5 rounded-full flex-shrink-0 shadow-[0_0_8px_currentColor]"
+                                        style={{ backgroundColor: node.data.color, color: node.data.color }}
                                     />
-                                    <span className="truncate">{node.name}</span>
-                                    <span className="text-xs text-slate-500 ml-auto">{node.type}</span>
+                                    <span className="truncate font-medium">{node.data.label}</span>
+                                    <span className="text-xs text-slate-500 ml-auto bg-slate-800 px-2 py-0.5 rounded-md">{node.data.type}</span>
                                 </button>
                             ))}
                         </div>
                     )}
-
-                    {showSearchResults && searchQuery && searchResults.length === 0 && (
-                        <div className="absolute top-full left-0 right-0 mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-xl p-3 text-center text-slate-500 text-sm">
-                            Aucun nœud trouvé
-                        </div>
-                    )}
                 </div>
 
-                {/* Node count and export button */}
-                <div className="mt-2 flex items-center justify-between gap-2">
-                    <span className="text-xs text-slate-500">
-                        {graphData.nodes.length} nœud{graphData.nodes.length > 1 ? 's' : ''}
+                <div className="mt-3 flex items-center justify-end gap-4 w-full px-1">
+                    <span className="text-xs text-slate-500 font-medium tracking-wide">
+                        {nodes.length} NŒUDS
                     </span>
                     <button
                         onClick={exportGraphData}
-                        className="flex items-center gap-1 px-2 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded transition-colors"
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg transition-all border border-slate-700/50 hover:border-slate-500/50 shadow-lg"
                         title="Exporter le graphe en JSON"
                     >
-                        <Download className="w-3 h-3" />
+                        <Download className="w-3.5 h-3.5" />
                         Exporter
                     </button>
                 </div>
             </div>
 
-            <ForceGraph2D
-                ref={fgRef}
-                graphData={graphData}
-                nodeLabel="name"
-                nodeColor={node => node.color}
-                nodeRelSize={6}
-                linkColor={() => 'rgba(255,255,255,0.2)'}
+            <ReactFlow
+                nodes={nodes}
+                edges={edges}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
                 onNodeClick={handleNodeClick}
-                backgroundColor="#0f172a"
+                nodeTypes={nodeTypes}
+                fitView
+                fitViewOptions={{ padding: 0.2 }}
+                minZoom={0.1}
+                maxZoom={2}
+                className="bg-slate-950"
+            >
+                <Background color="#1e293b" gap={20} size={2} className="opacity-50" />
+                <Controls className="!bg-slate-900/80 !border-slate-800/80 !shadow-2xl fill-white hover:!bg-slate-800" />
+                <MiniMap 
+                    nodeColor={(n) => n.data?.color || '#3b82f6'} 
+                    maskColor="rgba(15, 23, 42, 0.8)"
+                    className="!bg-slate-900/50 !border-slate-800/80 filter backdrop-blur-md rounded-xl overflow-hidden shadow-2xl" 
+                />
+            </ReactFlow>
 
-                // DAG Layout (Left to Right) - Ensures forward expansion
-                dagMode="lr"
-                dagLevelDistance={350}
-
-                // PHYSICS TUNING:
-                // 1. High VelocityDecay = High Friction (moves like in honey, stops floating)
-                // 2. High AlphaDecay = Simulation ends quickly
-                d3AlphaDecay={0.2}
-                d3VelocityDecay={0.8}
-
-                // Pre-calculate layout before rendering to avoid "flying" nodes
-                warmupTicks={100}
-                cooldownTicks={0} // Stop calculating once stable
-
-                // Zoom limits
-                minZoom={0.3}
-                maxZoom={4}
-
-                // Fix node position after drag
-                onNodeDragEnd={node => {
-                    node.fx = node.x;
-                    node.fy = node.y;
-                }}
-
-                // Freeze simulation after initial layout
-                onEngineStop={() => {
-                    // Fix all nodes in place after simulation stops
-                    if (fgRef.current) {
-                        graphData.nodes.forEach(node => {
-                            if (node.x !== undefined && node.y !== undefined) {
-                                node.fx = node.x;
-                                node.fy = node.y;
-                            }
-                        });
-                    }
-                }}
-                nodeCanvasObject={(node, ctx, globalScale) => {
-                    const label = node.name;
-
-                    // Use FIXED sizes in graph coordinates (not screen pixels)
-                    // This prevents nodes from overlapping when zooming
-                    const baseWidth = 140;
-                    const baseHeight = 40;
-                    const baseFontSize = 12;
-                    const baseRadius = 6;
-
-                    // Scale font for readability but keep node size fixed
-                    const fontSize = Math.max(baseFontSize, baseFontSize / Math.sqrt(globalScale));
-                    ctx.font = `600 ${fontSize}px "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
-
-                    const width = baseWidth;
-                    const height = baseHeight;
-                    const radius = baseRadius;
-
-                    const x = node.x - width / 2;
-                    const y = node.y - height / 2;
-
-                    // Check if this node is highlighted (from search)
-                    const isHighlighted = node.id === highlightedNodeId;
-
-                    // Glowing Shadow (stronger if highlighted)
-                    ctx.shadowColor = isHighlighted ? '#ffffff' : node.color;
-                    ctx.shadowBlur = isHighlighted ? 30 : 15;
-                    ctx.shadowOffsetX = 0;
-                    ctx.shadowOffsetY = 0;
-
-                    // Draw Rounded Rectangle
-                    ctx.fillStyle = node.color;
-                    ctx.strokeStyle = isHighlighted ? '#ffffff' : 'rgba(255, 255, 255, 0.9)';
-                    ctx.lineWidth = 1 / globalScale; // Thinner elegant border
-
-                    ctx.beginPath();
-                    ctx.moveTo(x + radius, y);
-                    ctx.lineTo(x + width - radius, y);
-                    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-                    ctx.lineTo(x + width, y + height - radius);
-                    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-                    ctx.lineTo(x + radius, y + height);
-                    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-                    ctx.lineTo(x, y + radius);
-                    ctx.quadraticCurveTo(x, y, x + radius, y);
-                    ctx.closePath();
-
-                    ctx.fill();
-                    ctx.shadowBlur = 0; // Reset shadow for stroke
-                    ctx.stroke();
-
-                    // Text Rendering
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'middle';
-                    ctx.fillStyle = '#ffffff';
-
-                    // Truncation Logic
-                    let displayLabel = label;
-                    const maxWidth = width - 16; // Fixed padding
-                    if (ctx.measureText(displayLabel).width > maxWidth) {
-                        while (ctx.measureText(displayLabel + '...').width > maxWidth && displayLabel.length > 0) {
-                            displayLabel = displayLabel.slice(0, -1);
-                        }
-                        displayLabel += '...';
-                    }
-
-                    ctx.fillText(displayLabel, node.x, node.y);
-
-                    node.__bckgDimensions = [width, height];
-                }}
-                nodePointerAreaPaint={(node, color, ctx) => {
-                    ctx.fillStyle = color;
-                    const dims = node.__bckgDimensions;
-                    if (dims) {
-                        ctx.fillRect(node.x - dims[0] / 2, node.y - dims[1] / 2, ...dims);
-                    }
-                }}
-            />
             {loading && (
-                <div className="absolute bottom-4 right-4 bg-slate-800 text-white px-4 py-2 rounded-full text-xs animate-pulse">
+                <div className="absolute bottom-6 right-6 z-50 bg-slate-900/90 backdrop-blur-md text-white px-5 py-2.5 rounded-full text-sm font-medium border border-blue-500/30 shadow-[0_0_20px_rgba(59,130,246,0.2)] flex items-center gap-3">
+                    <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
                     Loading Data...
                 </div>
             )}
         </div>
+    );
+}
+
+export default function NetworkGraph() {
+    return (
+        <ReactFlowProvider>
+            <NetworkGraphInner />
+        </ReactFlowProvider>
     );
 }

@@ -1,9 +1,10 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api from '../lib/api';
 import { ArrowLeft, BookOpen, Layers, Award, ExternalLink, Calendar } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend, PieChart, Pie, Cell } from 'recharts';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import ExportWidget from '../components/ExportWidget';
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
@@ -18,6 +19,7 @@ export default function Dashboard() {
     const [startYear, setStartYear] = useState('');
     const [endYear, setEndYear] = useState('');
     const [selectedKeyword, setSelectedKeyword] = useState('');
+    const [allKeywords, setAllKeywords] = useState([]);
 
     const fetchData = () => {
         setLoading(true);
@@ -62,7 +64,6 @@ export default function Dashboard() {
     }, [id]);
 
     // Keep track of initial keywords for the dropdown so it doesn't disappear on filter
-    const [allKeywords, setAllKeywords] = useState([]);
 
     useEffect(() => {
         if (data && data.stats && data.stats.hal && allKeywords.length === 0) {
@@ -100,7 +101,7 @@ export default function Dashboard() {
                 setData(res.data);
                 setLoading(false);
             })
-            .catch(err => {
+            .catch(() => {
                 setLoading(false);
             });
     };
@@ -170,7 +171,7 @@ export default function Dashboard() {
         ? [...top4, { name: 'Others', value: othersCount }]
         : top4;
 
-    const totalPubs = sourceStats.total_publications || 0;
+    // -------------------------------
     // -------------------------------
 
     return (
@@ -180,7 +181,7 @@ export default function Dashboard() {
             </Link>
 
             {/* Header Profile */}
-            <motion.div
+            <Motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 className="glass-card p-8 mb-8 flex flex-col md:flex-row items-center md:items-start gap-8 bg-white"
@@ -196,7 +197,7 @@ export default function Dashboard() {
                         {profile.office && <span className="flex items-center gap-1"><Layers className="w-4 h-4" /> {profile.office}</span>}
                     </div>
                 </div>
-            </motion.div>
+            </Motion.div>
 
             {/* Filters Section */}
             <div className="bg-white p-6 rounded-xl shadow-sm mb-8 border border-gray-100 flex flex-wrap gap-6 items-end justify-between">
@@ -283,7 +284,7 @@ export default function Dashboard() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
 
                 {/* Timeline */}
-                <motion.div
+                <Motion.div
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{ delay: 0.1 }}
@@ -309,10 +310,10 @@ export default function Dashboard() {
                             </AreaChart>
                         </ResponsiveContainer>
                     </div>
-                </motion.div>
+                </Motion.div>
 
                 {/* Document Types */}
-                <motion.div
+                <Motion.div
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{ delay: 0.2 }}
@@ -340,7 +341,7 @@ export default function Dashboard() {
                             </PieChart>
                         </ResponsiveContainer>
                     </div>
-                </motion.div>
+                </Motion.div>
             </div>
 
             {/* Keywords Cloud & Recent Pubs & Collaborators & Venues */}

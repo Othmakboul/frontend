@@ -2,11 +2,10 @@ import { useEffect, useState } from 'react';
 import api from '../lib/api';
 import { Link } from 'react-router-dom';
 import { Search, User, Mail, Phone, Building } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 
 export default function Home() {
     const [researchers, setResearchers] = useState([]);
-    const [filtered, setFiltered] = useState([]);
     const [query, setQuery] = useState('');
     const [loading, setLoading] = useState(true);
 
@@ -14,7 +13,7 @@ export default function Home() {
         api.get('/researchers')
             .then(res => {
                 setResearchers(res.data);
-                setFiltered(res.data);
+                setResearchers(res.data);
                 setLoading(false);
             })
             .catch(err => {
@@ -23,13 +22,11 @@ export default function Home() {
             });
     }, []);
 
-    useEffect(() => {
-        const q = query.toLowerCase();
-        setFiltered(researchers.filter(r =>
-            r.name.toLowerCase().includes(q) ||
-            (r.email && r.email.toLowerCase().includes(q))
-        ));
-    }, [query, researchers]);
+    const q = query.toLowerCase();
+    const filtered = researchers.filter(r =>
+        r.name.toLowerCase().includes(q) ||
+        (r.email && r.email.toLowerCase().includes(q))
+    );
 
     return (
         <div className="max-w-7xl mx-auto px-6 pb-20">
@@ -56,7 +53,7 @@ export default function Home() {
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {filtered.map((r, i) => (
-                        <motion.div
+                        <Motion.div
                             key={r._unique_id}
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
@@ -98,7 +95,7 @@ export default function Home() {
                                     </div>
                                 </div>
                             </Link>
-                        </motion.div>
+                        </Motion.div>
                     ))}
                 </div>
             )}

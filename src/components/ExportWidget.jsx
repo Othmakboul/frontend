@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Download, FileJson, FileSpreadsheet, X } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { downloadJSON, downloadCSV } from '../lib/exportUtils';
 
 export default function ExportWidget({ data, jsonFilename, csvOptions = [], forceDark = false }) {
@@ -44,7 +44,7 @@ export default function ExportWidget({ data, jsonFilename, csvOptions = [], forc
 
             <AnimatePresence>
                 {isOpen && (
-                    <motion.div
+                    <Motion.div
                         initial={{ opacity: 0, y: 10, scale: 0.95 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: 10, scale: 0.95 }}
@@ -97,7 +97,7 @@ export default function ExportWidget({ data, jsonFilename, csvOptions = [], forc
                                 </>
                             )}
                         </div>
-                    </motion.div>
+                    </Motion.div>
                 )}
             </AnimatePresence>
         </div>
