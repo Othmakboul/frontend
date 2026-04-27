@@ -15,6 +15,7 @@ import { Search, Download } from 'lucide-react';
 
 import api from '../lib/api';
 import GraphCustomNode from '../components/GraphCustomNode';
+import NetworkSubNav from '../components/NetworkSubNav';
 
 const nodeTypes = {
     custom: GraphCustomNode,
@@ -115,6 +116,138 @@ function NetworkGraphInner() {
             setNodes(nds => nds.map(n => ({ ...n, selected: false })));
         }, 3000);
     }, [setCenter, setNodes]);
+
+    const expandToElement = useCallback(async (type, item) => {
+        setLoading(true);
+        // Ensure root expansion path is captured locally
+        let currentNodes = [...nodes];
+        let currentEdges = [...edges];
+        const newNodesMap = new Map(currentNodes.map(n => [n.id, n]));
+        const newEdgesSet = new Set(currentEdges.map(e => e.id));
+
+        const localAddNodes = (sourceId, customNodesList) => {
+            const existingIds = new Set(Array.from(newNodesMap.values()).map(n => n.id));
+            const filtered = customNodesList.filter(n => !newNodesMap.has(n.id)).map(n => ({
+                id: n.id, type: 'custom', 
+                data: { label: n.name, subLabel: n.subLabel, type: n.type, color: n.color, raw: n.data || n, ...n }, 
+                position: {x: 0, y: 0}
+            }));
+            
+            filtered.forEach(n => newNodesMap.set(n.id, n));
+            
+            filtered.forEach(n => {
+                const edgeId = `e-${sourceId}-${n.id}`;
+                if (!newEdgesSet.has(edgeId)) {
+                    newEdgesSet.add(edgeId);
+                    currentEdges.push({ 
+                        id: edgeId, source: sourceId, target: n.id, animated: true, 
+                        style: { stroke: n.data.color, strokeWidth: 2 }
+                    });
+                }
+            });
+            setExpandedNodes(prev => new Set(prev).add(sourceId));
+        };
+
+        try {
+            if (type === 'researcher') {
+                localAddNodes('root', [
+                    { id: 'group-researchers', name: 'Chercheurs', color: '#3b82f6', type: 'group_researchers' },
+                    { id: 'group-projects', name: 'Projets', color: '#10b981', type: 'group_projects_global' }
+                ]);
+
+                const resRes = await api.get('/researchers');
+                const researchers = resRes.data;
+                const categories = [...new Set(researchers.map(r => r.category || 'Uncategorized'))];
+                localAddNodes('group-researchers', categories.map(cat => ({
+                    id: `cat-${cat}`, name: cat, color: '#8b5cf6', type: 'category', raw_category: cat
+                })));
+                
+                const categoryName = item.category || 'Uncategorized';
+                const cacheUpdate = {};
+                researchers.forEach(r => {
+                    const cat = r.category || 'Uncategorized';
+                    if (!cacheUpdate[cat]) cacheUpdate[cat] = [];
+                    cacheUpdate[cat].push(r);
+                });
+                setResearcherCache(prev => ({ ...prev, ...cacheUpdate }));
+
+                const categoryResearchers = cacheUpdate[categoryName] || [];
+                localAddNodes(`cat-${categoryName}`, categoryResearchers.map(r => ({
+                    id: r._unique_id, name: r.name, subLabel: r.status, color: '#60a5fa', type: 'researcher', data: r
+                })));
+
+                const finalNodes = Array.from(newNodesMap.values());
+                const layouted = getLayoutedElements(finalNodes, currentEdges);
+                setNodes(layouted.nodes);
+                setEdges(layouted.edges);
+                
+                setTimeout(() => {
+                    const targetNode = layouted.nodes.find(n => n.id === item._unique_id);
+                    if (targetNode) zoomToNode(targetNode);
+                }, 150);
+
+            } else if (type === 'project') {
+                localAddNodes('root', [
+                    { id: 'group-researchers', name: 'Chercheurs', color: '#3b82f6', type: 'group_researchers' },
+                    { id: 'group-projects', name: 'Projets', color: '#10b981', type: 'group_projects_global' }
+                ]);
+
+                const resProj = await api.get('/projects');
+                const projects = resProj.data;
+                setResearcherCache(prev => ({ ...prev, allProjects: projects }));
+
+                localAddNodes('group-projects', [
+                    { id: 'proj-collaborators-hal', name: 'Collaborateurs (HAL)', color: '#ec4899', type: 'proj_collab_hal' },
+                    { id: 'proj-partners', name: 'Partenaires', color: '#f59e0b', type: 'proj_partners_group' },
+                    { id: 'proj-funders', name: 'Financeurs', color: '#8b5cf6', type: 'proj_funders_group' },
+                    { id: 'proj-by-category', name: 'Par Catégorie', color: '#10b981', type: 'proj_by_category' }
+                ]);
+
+                const pType = item.type || 'Autres';
+                const types = [...new Set(projects.map(p => p.type || 'Autres'))];
+                localAddNodes('proj-by-category', types.map(t => ({
+                    id: `proj-type-${t}`, name: t, color: '#10b981', type: 'project_category', raw_type: t
+                })));
+                
+                localAddNodes(`proj-type-${pType}`, [
+                    { id: `cat-${pType}-collab-hal`, name: 'Collaborateurs (HAL)', color: '#ec4899', type: 'cat_collab_hal', categoryName: pType },
+                    { id: `cat-${pType}-partners`, name: 'Partenaires', color: '#f59e0b', type: 'cat_partners', categoryName: pType },
+                    { id: `cat-${pType}-funders`, name: 'Financeurs', color: '#8b5cf6', type: 'cat_funders', categoryName: pType },
+                    { id: `cat-${pType}-projects-list`, name: 'Liste des Projets', color: '#34d399', type: 'cat_projects_list', categoryName: pType }
+                ]);
+
+                const pCache = {};
+                projects.forEach(p => {
+                    const t = p.type || 'Autres';
+                    if (!pCache[t]) pCache[t] = [];
+                    pCache[t].push(p);
+                });
+                
+                const catProjects = pCache[pType] || [];
+                setResearcherCache(prev => ({ ...prev, ...pCache, [`cat-projects-${pType}`]: catProjects }));
+                
+                localAddNodes(`cat-${pType}-projects-list`, catProjects.map(p => ({
+                    id: p._unique_id || `proj-${p.NOM}`, name: p.NOM, color: '#34d399', type: 'item_project_global', data: p
+                })));
+
+                const finalNodes = Array.from(newNodesMap.values());
+                const layouted = getLayoutedElements(finalNodes, currentEdges);
+                setNodes(layouted.nodes);
+                setEdges(layouted.edges);
+                
+                setTimeout(() => {
+                    const targetId = item._unique_id || `proj-${item.NOM}`;
+                    const targetNode = layouted.nodes.find(n => n.id === targetId);
+                    if (targetNode) zoomToNode(targetNode);
+                }, 150);
+            }
+        } catch(err) {
+            console.error("Auto expand error", err);
+            setInfo("Erreur de navigation.");
+        } finally {
+            setLoading(false);
+        }
+    }, [nodes, edges, zoomToNode]);
 
     const exportGraphData = useCallback(() => {
         const exportData = {
@@ -665,8 +798,10 @@ function NetworkGraphInner() {
     }, [expandedNodes, addNodesAndLinks, removeNodeAndDescendants, researcherCache]);
 
     return (
-        <div className="h-[calc(100vh-100px)] relative overflow-hidden bg-slate-950 mx-4 rounded-3xl shadow-2xl border border-slate-800">
-            {/* Info Panel */}
+        <div className="flex flex-col h-[calc(100vh-80px)] w-full px-4 overflow-hidden pt-2">
+            <NetworkSubNav onSelectElement={expandToElement} />
+            <div className="flex-1 relative overflow-hidden bg-slate-950 rounded-3xl shadow-2xl border border-slate-800">
+                {/* Info Panel */}
             <div className="absolute top-4 left-4 z-10 p-3 max-w-xs pointer-events-none select-none">
                 <p className="text-slate-400 text-xs mb-2">
                     Click to expand, click again to collapse.
@@ -765,6 +900,7 @@ function NetworkGraphInner() {
                     Loading Data...
                 </div>
             )}
+            </div>
         </div>
     );
 }

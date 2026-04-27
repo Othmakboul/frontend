@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, Database, Users, Calendar, Award, FileText, BarChart2 } from 'lucide-react';
+import { Search, Database, Users, Calendar, Award, FileText, BarChart2, SearchX } from 'lucide-react';
 import ExportWidget from '../components/ExportWidget';
 import api from '../lib/api';
 
@@ -175,8 +175,14 @@ export default function ProjectDashboard() {
                                             </p>
                                         </div>
                                     ) : (
-                                        <div className="text-center py-8 text-slate-500 text-sm">
-                                            No public data found for this acronym.
+                                        <div className="flex flex-col items-center justify-center py-10 text-center">
+                                            <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-4 border border-red-500/20">
+                                                <SearchX className="w-8 h-8 text-red-400" />
+                                            </div>
+                                            <h4 className="text-red-400 font-bold mb-2">Project Not Found on HAL</h4>
+                                            <p className="text-slate-400 text-sm max-w-xs">
+                                                We couldn't find any public publications or data associated with this acronym on HAL.
+                                            </p>
                                         </div>
                                     )}
                                 </div>

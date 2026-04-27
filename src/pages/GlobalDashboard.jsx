@@ -300,7 +300,7 @@ function GlobalDashboard() {
                         </h3>
                         <div className="h-[500px] w-full">
                             <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={data.structures ? data.structures.slice(0, 10) : []} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                                <BarChart data={data.structures ? data.structures.filter(s => !s.name.toLowerCase().includes('savoie mont blanc') && s.name.toLowerCase() !== 'usmb').slice(0, 10) : []} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f0f0f0" />
                                     <XAxis type="number" stroke="#9ca3af" />
                                     <YAxis type="category" dataKey="name" width={450} tick={{ fontSize: 12 }} stroke="#9ca3af" interval={0} />
