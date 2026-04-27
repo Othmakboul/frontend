@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard';
 import NetworkGraph from './pages/NetworkGraph';
 import ProjectDashboard from './pages/ProjectDashboard';
 import GlobalDashboard from './pages/GlobalDashboard';
+import AdvancedDashboard from './pages/AdvancedDashboard';
 import useTheme from './lib/useTheme';
 
 function App() {
@@ -19,6 +20,7 @@ function App() {
           <Route path="/network" element={<NetworkGraph />} />
           <Route path="/projects" element={<ProjectDashboard />} />
           <Route path="/global-stats" element={<GlobalDashboard />} />
+          <Route path="/advanced" element={<AdvancedDashboard />} />
           <Route path="/researcher/:id" element={<Dashboard />} />
         </Routes>
       </div>

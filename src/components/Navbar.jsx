@@ -14,6 +14,7 @@ export default function Navbar({ theme, toggleTheme }) {
                     <Link to="/projects" className="hover:text-emerald-500 dark:hover:text-emerald-400 transition">Projects</Link>
                     <Link to="/network" className="hover:text-emerald-500 dark:hover:text-emerald-400 transition">Network Map</Link>
                     <Link to="/global-stats" className="hover:text-emerald-500 dark:hover:text-emerald-400 transition">Global Stats</Link>
+                    <Link to="/advanced" className="text-blue-600 dark:text-blue-400 font-bold hover:text-blue-700 dark:hover:text-blue-300 transition">Advanced Intelligence</Link>
 
                     <button
                         onClick={toggleTheme}
