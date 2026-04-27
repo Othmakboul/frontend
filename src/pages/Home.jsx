@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import api from '../lib/api';
 import { Link } from 'react-router-dom';
-import { Search, Mail, Phone, Building, BookOpen, FolderOpen } from 'lucide-react';
+import { Search, Mail, Phone, Building, BookOpen, FolderOpen, GraduationCap } from 'lucide-react';
 import { motion as Motion } from 'framer-motion';
 
 export default function Home() {
@@ -82,15 +82,21 @@ export default function Home() {
                                     </div>
 
                                     {/* Stats from DB warehouse */}
-                                    <div className="flex gap-3 mb-4">
+                                    <div className="flex flex-wrap gap-2 mb-4">
                                         <span className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-xl text-sm font-semibold">
                                             <BookOpen className="w-3.5 h-3.5" />
-                                            {r.pub_count ?? '–'} Publications
+                                            {r.pub_count ?? '–'} Pubs
                                         </span>
                                         <span className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 rounded-xl text-sm font-semibold">
                                             <FolderOpen className="w-3.5 h-3.5" />
                                             {r.project_count ?? '–'} Projects
                                         </span>
+                                        {r.phd_count > 0 && (
+                                            <span className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-50 dark:bg-violet-900/20 text-violet-700 dark:text-violet-300 rounded-xl text-sm font-semibold">
+                                                <GraduationCap className="w-3.5 h-3.5" />
+                                                {r.phd_count} PhD
+                                            </span>
+                                        )}
                                     </div>
 
                                     {/* Contact Info */}

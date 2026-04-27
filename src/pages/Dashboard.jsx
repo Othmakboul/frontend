@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api from '../lib/api';
-import { ArrowLeft, BookOpen, Layers, Award, ExternalLink, Calendar, FolderOpen, Database } from 'lucide-react';
+import { ArrowLeft, BookOpen, Layers, Award, ExternalLink, Calendar, FolderOpen, Database, GraduationCap, CheckCircle, Clock } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend, PieChart, Pie, Cell } from 'recharts';
 import { motion as Motion } from 'framer-motion';
 import ExportWidget from '../components/ExportWidget';
@@ -13,7 +13,8 @@ export default function Dashboard() {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [dbStats, setDbStats] = useState(null);  // Local DB stats
+    const [dbStats, setDbStats] = useState(null);
+    const [phdStudents, setPhdStudents] = useState([]);
 
     // Filters State
     const [startYear, setStartYear] = useState('');
@@ -53,6 +54,7 @@ export default function Dashboard() {
         api.get(`/researcher/${id}`)
             .then(res => {
                 setData(res.data);
+                setPhdStudents(res.data.phd_students || []);
                 setLoading(false);
             })
             .catch(err => {
@@ -61,7 +63,6 @@ export default function Dashboard() {
                 setLoading(false);
             });
 
-        // Fetch local DB stats in parallel
         api.get(`/api/researchers/${id}/publications`)
             .then(res => setDbStats({ pub_count: res.data.total }))
             .catch(() => {});
@@ -214,6 +215,14 @@ export default function Dashboard() {
                                 <Award className="w-4 h-4 text-purple-500" />
                                 <span className="text-sm font-bold text-purple-700 dark:text-purple-300">
                                     {Object.keys(hal.top_collaborators).length} Collaborators
+                                </span>
+                            </div>
+                        )}
+                        {phdStudents.length > 0 && (
+                            <div className="flex items-center gap-2 px-4 py-2 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl">
+                                <GraduationCap className="w-4 h-4 text-emerald-500" />
+                                <span className="text-sm font-bold text-emerald-700 dark:text-emerald-300">
+                                    {phdStudents.filter(d => d.status !== 'defended').length} PhD Student{phdStudents.filter(d => d.status !== 'defended').length !== 1 ? 's' : ''}
                                 </span>
                             </div>
                         )}
@@ -493,6 +502,66 @@ export default function Dashboard() {
                     </div>
                 </div>
             </div>
+
+            {/* PhD Students Panel */}
+            {phdStudents.length > 0 && (
+                <Motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.3 }}
+                    className="glass-card p-6 bg-white mb-8"
+                >
+                    <h3 className="text-lg font-bold text-slate-700 mb-5 flex items-center gap-2">
+                        <GraduationCap className="w-5 h-5 text-emerald-500" />
+                        PhD Students Supervised
+                        <span className="ml-2 px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full text-xs font-bold">
+                            {phdStudents.length}
+                        </span>
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                        {phdStudents.map((doc, i) => (
+                            <div key={i} className={`p-4 rounded-xl border ${
+                                doc.status === 'defended'
+                                    ? 'border-slate-200 bg-slate-50 dark:bg-slate-800/30'
+                                    : 'border-emerald-100 bg-emerald-50 dark:bg-emerald-900/10'
+                            }`}>
+                                <div className="flex items-start justify-between gap-2 mb-2">
+                                    <p className="font-semibold text-slate-800 dark:text-white text-sm leading-tight">{doc.name}</p>
+                                    <span className={`flex-shrink-0 flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${
+                                        doc.status === 'defended'
+                                            ? 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-400'
+                                            : 'bg-emerald-200 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400'
+                                    }`}>
+                                        {doc.status === 'defended'
+                                            ? <><CheckCircle className="w-3 h-3" /> Defended</>
+                                            : <><Clock className="w-3 h-3" /> Active</>
+                                        }
+                                    </span>
+                                </div>
+                                {doc.sujet && doc.sujet !== 'Non trouve' && (
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 mb-2">{doc.sujet}</p>
+                                )}
+                                <div className="flex flex-wrap gap-2 text-xs text-slate-500">
+                                    {doc.start_date && (
+                                        <span className="flex items-center gap-1">
+                                            <Calendar className="w-3 h-3" />
+                                            Since {doc.start_date.substring(0, 7)}
+                                        </span>
+                                    )}
+                                    {doc.theme && doc.theme !== 'Non trouve' && (
+                                        <span className="px-1.5 py-0.5 bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400 rounded font-medium">
+                                            {doc.theme}
+                                        </span>
+                                    )}
+                                    {doc.defense_date && (
+                                        <span className="text-slate-400">Defended {doc.defense_date}</span>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </Motion.div>
+            )}
 
             {!hal.found && !dblp.found && (
                 <div className="mt-8 p-4 bg-yellow-50 text-yellow-700 rounded-lg text-center">
