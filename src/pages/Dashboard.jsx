@@ -1,8 +1,7 @@
-/* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api from '../lib/api';
-import { ArrowLeft, BookOpen, Layers, Award, ExternalLink, Calendar } from 'lucide-react';
+import { ArrowLeft, BookOpen, Layers, Award, ExternalLink, Calendar, FolderOpen, Database } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend, PieChart, Pie, Cell } from 'recharts';
 import { motion as Motion } from 'framer-motion';
 import ExportWidget from '../components/ExportWidget';
@@ -14,6 +13,7 @@ export default function Dashboard() {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [dbStats, setDbStats] = useState(null);  // Local DB stats
 
     // Filters State
     const [startYear, setStartYear] = useState('');
@@ -43,13 +43,12 @@ export default function Dashboard() {
 
     // Initial Load & ID Change
     useEffect(() => {
-        // Reset filters on new researcher
         setStartYear('');
         setEndYear('');
         setSelectedKeyword('');
         setAllKeywords([]);
+        setDbStats(null);
 
-        // Fetch specific data for new ID (without filters initially)
         setLoading(true);
         api.get(`/researcher/${id}`)
             .then(res => {
@@ -61,6 +60,11 @@ export default function Dashboard() {
                 setError("Failed to load researcher data.");
                 setLoading(false);
             });
+
+        // Fetch local DB stats in parallel
+        api.get(`/api/researchers/${id}/publications`)
+            .then(res => setDbStats({ pub_count: res.data.total }))
+            .catch(() => {});
     }, [id]);
 
     // Keep track of initial keywords for the dropdown so it doesn't disappear on filter
@@ -195,6 +199,30 @@ export default function Dashboard() {
                     <div className="flex flex-wrap justify-center md:justify-start gap-4 text-slate-500 mb-4">
                         {profile.category && <span className="bg-blue-50 text-blue-600 px-3 py-1 rounded-full text-sm font-medium">{profile.category.replace('_', ' ')}</span>}
                         {profile.office && <span className="flex items-center gap-1"><Layers className="w-4 h-4" /> {profile.office}</span>}
+                    </div>
+                    {/* DB Stats Banner */}
+                    <div className="flex flex-wrap gap-3">
+                        <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-xl">
+                            <Database className="w-4 h-4 text-blue-500" />
+                            <span className="text-sm font-bold text-blue-700 dark:text-blue-300">
+                                {dbStats ? dbStats.pub_count : hal.total_publications ?? '–'} Publications
+                            </span>
+                            <span className="text-xs text-blue-400">(HAL warehouse)</span>
+                        </div>
+                        {hal.top_collaborators && (
+                            <div className="flex items-center gap-2 px-4 py-2 bg-purple-50 dark:bg-purple-900/20 rounded-xl">
+                                <Award className="w-4 h-4 text-purple-500" />
+                                <span className="text-sm font-bold text-purple-700 dark:text-purple-300">
+                                    {Object.keys(hal.top_collaborators).length} Collaborators
+                                </span>
+                            </div>
+                        )}
+                        {profile.url_listic && (
+                            <a href={profile.url_listic} target="_blank" rel="noreferrer"
+                                className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-700 rounded-xl text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 transition">
+                                <ExternalLink className="w-4 h-4" /> LISTIC Profile
+                            </a>
+                        )}
                     </div>
                 </div>
             </Motion.div>

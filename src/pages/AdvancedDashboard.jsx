@@ -1,14 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Users, Network, AlertTriangle, Layers, BookOpen,
-  FolderOpen, RefreshCw, ChevronRight, Shield, Info
+  Network, AlertTriangle, Layers, BookOpen,
+  FolderOpen, RefreshCw, Shield
 } from 'lucide-react';
 import api from '../lib/api';
 
 // ─── Tab Navigation ────────────────────────────────────────────────────────
 const TABS = [
-  { id: 'researchers', label: 'Researcher Cards', icon: Users },
   { id: 'collaborations', label: 'Collaborations', icon: Network },
   { id: 'inconsistencies', label: 'Inconsistencies', icon: AlertTriangle },
   { id: 'clustering', label: 'Clustering', icon: Layers },
@@ -393,7 +392,7 @@ function StatBox({ label, value, color }) {
 
 // ─── Main Page ─────────────────────────────────────────────────────────────
 export default function AdvancedDashboard() {
-  const [activeTab, setActiveTab] = useState('researchers');
+  const [activeTab, setActiveTab] = useState('collaborations');
 
   return (
     <div className="max-w-7xl mx-auto px-4 pb-20">
@@ -424,8 +423,7 @@ export default function AdvancedDashboard() {
 
       {/* Tab Content */}
       <div>
-        {activeTab === 'researchers' && <ResearcherCards />}
-        {activeTab === 'collaborations' && <Collaborations />}
+      {activeTab === 'collaborations' && <Collaborations />}
         {activeTab === 'inconsistencies' && <Inconsistencies />}
         {activeTab === 'clustering' && <Clustering />}
       </div>
