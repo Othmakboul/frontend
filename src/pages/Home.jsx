@@ -36,16 +36,16 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-6 pb-20">
             <div className="text-center mb-12">
                 <h1 className="text-5xl font-extrabold text-slate-800 dark:text-white mb-4">
-                    Discover <span className="text-blue-600">Research</span> Excellence
+                    Découvrez l'Excellence <span className="text-blue-600">Scientifique</span>
                 </h1>
-                <p className="text-slate-500 text-lg">Explore the profiles and impact of LISTIC laboratory members.</p>
+                <p className="text-slate-500 text-lg">Explorez les profils et l'impact des membres du laboratoire LISTIC.</p>
 
                 <div className="mt-8 relative max-w-xl mx-auto">
                     <Search className="absolute left-4 top-3.5 text-slate-400 w-5 h-5" />
                     <input
                         type="text"
                         className="w-full pl-12 pr-4 py-3 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
-                        placeholder="Search researchers..."
+                        placeholder="Rechercher des chercheurs..."
                         value={query}
                         onChange={e => setQuery(e.target.value)}
                     />
@@ -55,7 +55,7 @@ export default function Home() {
             {loading ? (
                 <div className="flex flex-col items-center justify-center py-20 gap-4">
                     <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
-                    <p className="text-slate-400 animate-pulse">Loading researchers...</p>
+                    <p className="text-slate-400 animate-pulse">Chargement des chercheurs...</p>
                 </div>
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -87,14 +87,16 @@ export default function Home() {
                                             <BookOpen className="w-3.5 h-3.5" />
                                             {r.pub_count ?? '–'} Pubs
                                         </span>
+                                        {(r.project_count > 0) && (
                                         <span className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 rounded-xl text-sm font-semibold">
                                             <FolderOpen className="w-3.5 h-3.5" />
-                                            {r.project_count ?? '–'} Projects
+                                            {r.project_count} Projets
                                         </span>
+                                        )}
                                         {r.phd_count > 0 && (
                                             <span className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-50 dark:bg-violet-900/20 text-violet-700 dark:text-violet-300 rounded-xl text-sm font-semibold">
                                                 <GraduationCap className="w-3.5 h-3.5" />
-                                                {r.phd_count} PhD
+                                                {r.phd_count} Thèses
                                             </span>
                                         )}
                                     </div>

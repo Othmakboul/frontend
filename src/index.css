@@ -4,14 +4,26 @@
 
 @layer base {
   body {
-    @apply bg-slate-50 text-slate-900 antialiased;
+    @apply antialiased;
+    font-family: 'Inter', sans-serif;
   }
 }
 
+/* Linear-style minimal cards */
 .glass-card {
-  @apply bg-white/70 backdrop-blur-lg border border-white/20 shadow-xl rounded-2xl;
+  @apply bg-[#0f0f11] border border-white/5 shadow-2xl rounded-2xl text-zinc-100;
 }
 
 .glass-card-dark {
-   @apply bg-slate-900/80 backdrop-blur-lg border border-slate-700/50 shadow-xl rounded-2xl text-white;
+  @apply bg-[#0f0f11] border border-white/5 shadow-2xl rounded-2xl text-zinc-100;
 }
+
+/* Subtle glowing effects for accents */
+.glow-accent {
+  box-shadow: 0 0 20px rgba(99, 102, 241, 0.15);
+}
+
+.border-hairline {
+  border: 0.5px solid rgba(255, 255, 255, 0.08);
+}
+

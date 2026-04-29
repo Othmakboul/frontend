@@ -11,11 +11,13 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import dagre from 'dagre';
-import { Search, Download } from 'lucide-react';
+import { Search, Download, Zap } from 'lucide-react';
+import { AnimatePresence } from 'framer-motion';
 
 import api from '../lib/api';
 import GraphCustomNode from '../components/GraphCustomNode';
 import NetworkSubNav from '../components/NetworkSubNav';
+import Galaxy3D from '../components/Galaxy3D';
 
 const nodeTypes = {
     custom: GraphCustomNode,
@@ -74,6 +76,7 @@ function NetworkGraphInner() {
     const [expandedNodes, setExpandedNodes] = useState(new Set());
     const [info, setInfo] = useState("Click on the LISTIC node to start.");
     const [researcherCache, setResearcherCache] = useState({});
+    const [showGalaxy, setShowGalaxy] = useState(false);
     
     const [searchQuery, setSearchQuery] = useState('');
     const [showSearchResults, setShowSearchResults] = useState(false);
@@ -798,6 +801,7 @@ function NetworkGraphInner() {
     }, [expandedNodes, addNodesAndLinks, removeNodeAndDescendants, researcherCache]);
 
     return (
+        <>
         <div className="flex flex-col h-[calc(100vh-80px)] w-full px-4 overflow-hidden pt-2">
             <NetworkSubNav onSelectElement={expandToElement} />
             <div className="flex-1 relative overflow-hidden bg-slate-950 rounded-3xl shadow-2xl border border-slate-800">
@@ -862,6 +866,14 @@ function NetworkGraphInner() {
                         {nodes.length} NŒUDS
                     </span>
                     <button
+                        onClick={() => setShowGalaxy(true)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-gradient-to-r from-indigo-600/80 to-violet-600/80 hover:from-indigo-500/90 hover:to-violet-500/90 text-white rounded-lg transition-all border border-indigo-500/50 shadow-[0_0_15px_rgba(99,102,241,0.3)] hover:shadow-[0_0_25px_rgba(99,102,241,0.5)]"
+                        title="Mode exploration 3D — Galaxie LISTIC"
+                    >
+                        <Zap className="w-3.5 h-3.5" />
+                        🌌 Galaxy 3D
+                    </button>
+                    <button
                         onClick={exportGraphData}
                         className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg transition-all border border-slate-700/50 hover:border-slate-500/50 shadow-lg"
                         title="Exporter le graphe en JSON"
@@ -902,6 +914,12 @@ function NetworkGraphInner() {
             )}
             </div>
         </div>
+
+        {/* Galaxy 3D Overlay */}
+        <AnimatePresence>
+            {showGalaxy && <Galaxy3D onClose={() => setShowGalaxy(false)} />}
+        </AnimatePresence>
+        </>
     );
 }
 
